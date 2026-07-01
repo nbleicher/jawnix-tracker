@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jawnix — Lead Tracker</title>
+<style>
+:root{--blue:#185FA5;--blue-lt:#dbeafe;--navy:#1f4e79;--surface:#f8fafc;--border:#e2e8f0;--text:#0f172a;--muted:#64748b;--r:8px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:#fff}
+.header{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
+.logo{font-size:17px;font-weight:700;letter-spacing:.05em}.logo span{color:#60a5fa}
+.header-sub{font-size:12px;opacity:.65}
+.tabs{display:flex;border-bottom:1px solid var(--border);padding:0 24px;background:#fff;position:sticky;top:0;z-index:10;overflow-x:auto}
+.tab{padding:11px 16px;font-size:13px;cursor:pointer;border:none;border-bottom:2px solid transparent;color:var(--muted);background:none;font-weight:500;white-space:nowrap}
+.tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+.tab:hover:not(.active){color:var(--text)}
+.content{padding:20px 24px;max-width:720px;margin:0 auto}
+.pane{display:none}.pane.active{display:block}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+input[type=text],input[type=email],input[type=number],input[type=date],input[type=file]{height:36px;border:1px solid var(--border);border-radius:var(--r);padding:0 10px;font-size:14px;color:var(--text);background:#fff;width:100%}
+input[type=file]{padding:6px 10px;height:auto}
+input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,95,165,.1)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{height:36px;border-radius:var(--r);font-size:13px;cursor:pointer;padding:0 16px;border:1px solid var(--border);background:#fff;color:var(--text);font-weight:500}
+.btn:hover{background:var(--surface)}
+.btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn-primary:hover{background:var(--navy);border-color:var(--navy)}
+.btn-sm{height:28px;font-size:12px;padding:0 10px}
+.btn-danger{border-color:#fca5a5;color:#dc2626}
+.btn-danger:hover{background:#fef2f2}
+.stat-bar{display:flex;gap:24px;background:var(--blue-lt);border-radius:var(--r);padding:12px 16px;margin-bottom:18px;flex-wrap:wrap}
+.stat-lbl{font-size:10px;color:var(--blue);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.stat-val{font-size:20px;font-weight:700;color:var(--navy);line-height:1.3}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-bottom:1px solid var(--border)}
+td{padding:8px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+.td-r{text-align:right}
+.tr-total td{font-weight:700;border-top:1px solid var(--border);border-bottom:none}
+.card{border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px;overflow:hidden}
+.card-head{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--surface);gap:12px}
+.card-name{font-weight:700;font-size:14px}
+.card-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.card-amt{font-size:20px;font-weight:700;color:var(--navy);text-align:right}
+.card table td,.card table th{padding:7px 16px}
+.amount-big{font-size:26px;font-weight:700;color:var(--navy);margin:4px 0 14px}
+.amount-lbl{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.msg-ok{background:#f0fdf4;border:1px solid #86efac;border-radius:var(--r);padding:10px 14px;font-size:13px;margin-top:10px}
+.msg-err{background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--r);padding:10px 14px;font-size:13px;color:#991b1b;margin-top:10px}
+.msg-info{color:var(--muted);font-size:13px;padding:12px 0}
+hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+.sec-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:10px}
+.day-row{display:grid;grid-template-columns:1.2fr 1.3fr 1fr 32px;gap:8px;align-items:end;margin-bottom:8px}
+.rm-btn{width:32px;height:36px;border:1px solid var(--border);border-radius:var(--r);background:none;cursor:pointer;color:var(--muted);font-size:18px;line-height:1}
+.rm-btn:hover{border-color:#fca5a5;color:#dc2626}
+.total-inv{display:flex;justify-content:space-between;align-items:center;background:var(--blue-lt);border-radius:var(--r);padding:12px 16px;margin-bottom:14px}
+.json-out{background:#f8fafc;border:1px solid var(--border);border-radius:var(--r);padding:14px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:14px;max-height:200px;overflow-y:auto}
+.copy-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
+.badge-ok{background:#dcfce7;color:#15803d}
+.settings-box{border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px}
+.rate-big{font-size:28px;font-weight:700;color:var(--navy);margin:6px 0 2px}
+.rate-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div><div class="logo">JAWN<span>IX</span></div><div class="header-sub">Lead Tracker &amp; Invoice Builder</div></div>
+  <div class="header-sub" id="hdr-date"></div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="tab('log')">Log leads</button>
+  <button class="tab" onclick="tab('daily')">Daily view</button>
+  <button class="tab" onclick="tab('weekly')">Weekly summary</button>
+  <button class="tab" onclick="tab('invoice')">Invoice</button>
+  <button class="tab" onclick="tab('settings')">Settings</button>
+</div>
+
+<div class="content">
+
+  <!-- LOG -->
+  <div class="pane active" id="pane-log">
+    <div id="today-sum"></div>
+    <hr>
+    <div class="sec-lbl">New entry</div>
+    <div class="row2">
+      <div class="field"><label>Date</label><input type="date" id="log-date"></div>
+      <div class="field"><label>Client</label>
+        <input type="text" id="log-client" list="cl-list" autocomplete="off" placeholder="Select or type" oninput="onClient()">
+        <datalist id="cl-list"></datalist>
+      </div>
+    </div>
+    <div class="field" id="email-wrap" style="display:none">
+      <label>Email <span style="font-weight:400;text-transform:none;font-size:11px">(new client)</span></label>
+      <input type="email" id="log-email" placeholder="client@example.com">
+    </div>
+    <div class="row2">
+      <div class="field"><label>Leads sent</label><input type="number" id="log-leads" placeholder="50000" min="1" step="1000" oninput="calcAmt()"></div>
+      <div class="field"><label>Rate / lead ($)</label><input type="number" id="log-rate" step="0.0001" min="0.0001" oninput="calcAmt()"></div>
+    </div>
+    <div class="amount-lbl">Amount</div>
+    <div class="amount-big" id="log-amt">$0.00</div>
+    <button class="btn btn-primary" style="width:100%" onclick="submitLog()">Log entry</button>
+    <div id="log-msg"></div>
+  </div>
+
+  <!-- DAILY -->
+  <div class="pane" id="pane-daily">
+    <div class="row2" style="margin-bottom:18px">
+      <div class="field" style="margin:0"><label>Date</label><input type="date" id="daily-date" onchange="loadDaily()"></div>
+    </div>
+    <div id="daily-out"><div class="msg-info">Loading…</div></div>
+  </div>
+
+  <!-- WEEKLY -->
+  <div class="pane" id="pane-weekly">
+    <div class="row2" style="margin-bottom:18px">
+      <div class="field" style="margin:0"><label>Any date in the week</label><input type="date" id="weekly-date" onchange="loadWeekly()"></div>
+    </div>
+    <div id="weekly-out"><div class="msg-info">Loading…</div></div>
+  </div>
+
+  <!-- INVOICE -->
+  <div class="pane" id="pane-invoice">
+    <div class="row2">
+      <div class="field"><label>Invoice #</label><input type="text" id="inv-num" value="INV-0001"></div>
+      <div class="field"><label>Invoice date</label><input type="date" id="inv-date"></div>
+    </div>
+    <div class="field"><label>Week range</label><input type="text" id="inv-week" placeholder="Jun 23–29, 2026"></div>
+    <div class="row2">
+      <div class="field"><label>Client name</label><input type="text" id="inv-client" list="inv-cl-list" autocomplete="off" oninput="fillInvEmail()"><datalist id="inv-cl-list"></datalist></div>
+      <div class="field"><label>Client email</label><input type="email" id="inv-email"></div>
+    </div>
+    <div class="field" style="max-width:180px"><label>Rate / lead ($)</label><input type="number" id="inv-rate" step="0.0001" min="0.0001" oninput="recalcInv()"></div>
+    <hr>
+    <div class="sec-lbl">Day entries</div>
+    <div id="inv-days"></div>
+    <button class="btn btn-sm" onclick="addDay()" style="margin-bottom:14px">+ Add day</button>
+    <div class="total-inv">
+      <span style="font-size:13px;color:var(--blue);font-weight:600">Total due</span>
+      <span style="font-size:22px;font-weight:700;color:var(--navy)" id="inv-total">$0.00</span>
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="buildInvoiceJSON()">Build invoice JSON</button>
+    <div id="inv-res"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="pane" id="pane-settings">
+
+    <div class="settings-box">
+      <div class="sec-lbl">Default rate per lead</div>
+      <div class="rate-lbl">Current rate</div>
+      <div class="rate-big" id="set-current-rate">—</div>
+      <div class="row2" style="margin-top:14px;max-width:340px">
+        <div class="field" style="margin:0"><label>New rate ($)</label>
+          <input type="number" id="set-rate" step="0.0001" min="0.0001" placeholder="0.0015">
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="btn btn-primary" style="width:100%" onclick="saveSettings()">Save rate</button>
+        </div>
+      </div>
+      <div id="set-rate-msg"></div>
+    </div>
+
+    <div class="settings-box">
+      <div class="sec-lbl">Apply rate to an entire week</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Updates every entry for the selected week — useful when you decide to change pricing after entries are already logged.</p>
+      <div class="row2" style="max-width:400px">
+        <div class="field" style="margin:0"><label>Any date in the week</label>
+          <input type="date" id="set-week">
+        </div>
+        <div class="field" style="margin:0"><label>Rate to apply ($)</label>
+          <input type="number" id="set-apply-rate" step="0.0001" min="0.0001" placeholder="0.0015">
+        </div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:12px" onclick="applyWeekRate()">Apply to week</button>
+      <div id="set-week-msg"></div>
+    </div>
+
+    <div class="settings-box">
+      <div class="sec-lbl">Data</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Import your existing <code style="background:var(--surface);padding:1px 5px;border-radius:4px;font-size:12px">leads_log.json</code> or export a backup.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label style="text-transform:none;font-size:13px;font-weight:400;cursor:pointer">
+          <input type="file" id="import-file" accept=".json" style="display:none" onchange="importJSON(this)">
+          <span class="btn" onclick="document.getElementById('import-file').click()">Import JSON</span>
+        </label>
+        <button class="btn" onclick="exportJSON()">Export JSON</button>
+        <button class="btn btn-danger" onclick="clearData()">Clear all data</button>
+      </div>
+      <div id="set-data-msg"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── Storage ───────────────────────────────────────────────────────────────────
+const S = {
+  leads:    ()  => JSON.parse(localStorage.getItem('jawnix_leads')    || '[]'),
+  settings: ()  => JSON.parse(localStorage.getItem('jawnix_settings') || '{"default_rate":0.0015}'),
+  saveLeads:(d) => localStorage.setItem('jawnix_leads',    JSON.stringify(d)),
+  saveSett: (s) => localStorage.setItem('jawnix_settings', JSON.stringify(s)),
+};
+
+// ── Data ops ──────────────────────────────────────────────────────────────────
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+function logEntry(date, client, email, leads, rate){
+  const data = S.leads();
+  const entry = {
+    id: Date.now(),
+    date, client, email,
+    leads: parseInt(leads),
+    rate:  parseFloat(rate),
+    amount: Math.round(parseInt(leads) * parseFloat(rate) * 100) / 100,
+  };
+  data.push(entry);
+  S.saveLeads(data);
+  return entry;
+}
+
+function viewDaily(date){
+  const entries = S.leads().filter(e => e.date === date);
+  return {
+    date, entries,
+    total_leads:  entries.reduce((s,e) => s + e.leads,  0),
+    total_amount: Math.round(entries.reduce((s,e) => s + e.amount, 0) * 100) / 100,
+  };
+}
+
+function viewWeekly(weekStart){
+  const start = new Date(weekStart + 'T12:00:00');
+  const end   = new Date(weekStart + 'T12:00:00');
+  end.setDate(end.getDate() + 6);
+
+  const entries = S.leads().filter(e => {
+    const d = new Date(e.date + 'T12:00:00');
+    return d >= start && d <= end;
+  });
+
+  const map = {};
+  entries.forEach(e => {
+    if (!map[e.client]) map[e.client] = {
+      client: e.client, email: e.email||'', days: [],
+      total_leads: 0, total_amount: 0, rate: e.rate,
+    };
+    const d = new Date(e.date + 'T12:00:00');
+    map[e.client].days.push({
+      id: e.id,
+      day:    DAY_NAMES[d.getDay()],
+      date:   d.toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'numeric'}),
+      leads:  e.leads,
+      amount: e.amount,
+      rate:   e.rate,
+    });
+    map[e.client].total_leads  += e.leads;
+    map[e.client].total_amount += e.amount;
+  });
+  Object.values(map).forEach(c => {
+    c.total_amount = Math.round(c.total_amount * 100) / 100;
+  });
+
+  const endD = new Date(weekStart + 'T12:00:00');
+  endD.setDate(endD.getDate() + 6);
+  const week_label =
+    start.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '–' +
+    endD.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+
+  return { week_start: weekStart, week_label, clients: Object.values(map) };
+}
+
+function getClients(){
+  const seen = {};
+  S.leads().forEach(e => { if (!seen[e.client]) seen[e.client] = e.email||''; });
+  return Object.entries(seen).map(([name,email]) => ({name,email}));
+}
+
+function editEntry(id, leads, rate){
+  const data = S.leads();
+  const e = data.find(e => String(e.id) === String(id));
+  if (!e) throw new Error('Not found');
+  if (leads != null) e.leads  = parseInt(leads);
+  if (rate  != null) e.rate   = parseFloat(rate);
+  e.amount = Math.round(e.leads * e.rate * 100) / 100;
+  S.saveLeads(data);
+  return e;
+}
+
+function deleteEntry(id){
+  const data = S.leads();
+  S.saveLeads(data.filter(e => String(e.id) !== String(id)));
+}
+
+function bulkRate(weekStart, rate){
+  const data  = S.leads();
+  const start = new Date(weekStart + 'T12:00:00');
+  const end   = new Date(weekStart + 'T12:00:00');
+  end.setDate(end.getDate() + 6);
+  let count = 0;
+  data.forEach(e => {
+    const d = new Date(e.date + 'T12:00:00');
+    if (d >= start && d <= end){
+      e.rate   = parseFloat(rate);
+      e.amount = Math.round(e.leads * parseFloat(rate) * 100) / 100;
+      count++;
+    }
+  });
+  S.saveLeads(data);
+  return {updated: count, rate: parseFloat(rate)};
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+let activeTab = 'log', defaultRate = 0.0015, dayCount = 0;
+let clientMap = {};
+
+function today(){ return localDate(new Date()); }
+function localDate(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function fmtD(s){ return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function fmtRate(r){ return parseFloat(r).toFixed(4); }
+function getSun(s){
+  const d = new Date(s + 'T12:00:00');
+  d.setDate(d.getDate() - d.getDay());
+  return localDate(d);
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/'/g,'&#39;'); }
+
+function reloadActive(){
+  if (activeTab === 'daily')    loadDaily();
+  if (activeTab === 'weekly')   loadWeekly();
+  if (activeTab === 'settings') loadSettingsTab();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+function init(){
+  const t = today();
+  document.getElementById('hdr-date').textContent =
+    new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  ['log-date','daily-date','weekly-date','inv-date','set-week'].forEach(id => {
+    document.getElementById(id).value = t;
+  });
+
+  const s = S.settings();
+  defaultRate = parseFloat(s.default_rate) || 0.0015;
+  document.getElementById('log-rate').value       = defaultRate;
+  document.getElementById('inv-rate').value       = defaultRate;
+  document.getElementById('set-apply-rate').value = defaultRate;
+
+  refreshClients();
+  refreshToday(t);
+  calcAmt();
+  addDay();
+  loadSettingsTab();
+}
+
+function refreshClients(){
+  clientMap = {};
+  const list = getClients();
+  list.forEach(c => { clientMap[c.name] = c.email; });
+  const opts = list.map(c => `<option value="${esc(c.name)}">`).join('');
+  document.getElementById('cl-list').innerHTML     = opts;
+  document.getElementById('inv-cl-list').innerHTML = opts;
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+const TAB_NAMES = ['log','daily','weekly','invoice','settings'];
+function tab(name){
+  activeTab = name;
+  TAB_NAMES.forEach((t,i) => {
+    document.getElementById('pane-'+t).classList.toggle('active', t === name);
+    document.querySelectorAll('.tab')[i].classList.toggle('active', t === name);
+  });
+  if (name === 'daily')    loadDaily();
+  if (name === 'weekly')   loadWeekly();
+  if (name === 'settings') loadSettingsTab();
+}
+
+// ── Log tab ───────────────────────────────────────────────────────────────────
+function calcAmt(){
+  const l = parseFloat(document.getElementById('log-leads').value) || 0;
+  const r = parseFloat(document.getElementById('log-rate').value)  || 0;
+  document.getElementById('log-amt').textContent = '$' + (l * r).toFixed(2);
+}
+
+function onClient(){
+  const v = document.getElementById('log-client').value.trim();
+  const known = clientMap.hasOwnProperty(v);
+  document.getElementById('email-wrap').style.display = (v && !known) ? 'block' : 'none';
+  if (known && clientMap[v]) document.getElementById('log-email').value = clientMap[v];
+}
+
+function submitLog(){
+  const date   = document.getElementById('log-date').value;
+  const client = document.getElementById('log-client').value.trim();
+  const email  = document.getElementById('log-email').value.trim() || clientMap[client] || '';
+  const leads  = parseInt(document.getElementById('log-leads').value);
+  const rate   = parseFloat(document.getElementById('log-rate').value);
+  const msg    = document.getElementById('log-msg');
+  if (!date||!client||!leads||!rate){ msg.innerHTML='<div class="msg-err">Fill in all fields.</div>'; return; }
+
+  const entry = logEntry(date, client, email, leads, rate);
+  refreshClients();
+  document.getElementById('email-wrap').style.display = 'none';
+  document.getElementById('log-leads').value = '';
+  calcAmt();
+  msg.innerHTML = `<div class="msg-ok"><strong>${leads.toLocaleString()} leads logged</strong> → $${entry.amount.toFixed(2)} for ${client}</div>`;
+  refreshToday(date);
+}
+
+function refreshToday(date){
+  const el   = document.getElementById('today-sum');
+  const data = viewDaily(date);
+  if (!data.entries.length){ el.innerHTML = `<div class="msg-info">No entries yet for ${fmtD(date)}.</div>`; return; }
+  const by = {};
+  data.entries.forEach(e => {
+    if (!by[e.client]) by[e.client] = {leads:0,amount:0};
+    by[e.client].leads  += e.leads;
+    by[e.client].amount += e.amount;
+  });
+  el.innerHTML = `<div class="stat-bar">
+    <div class="stat"><div class="stat-lbl">Today</div><div class="stat-val">${fmtD(date)}</div></div>
+    <div class="stat"><div class="stat-lbl">Total leads</div><div class="stat-val">${data.total_leads.toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">Total due</div><div class="stat-val">$${data.total_amount.toFixed(2)}</div></div>
+  </div>
+  <table><thead><tr><th>Client</th><th class="td-r">Leads</th><th class="td-r">Amount</th></tr></thead>
+  <tbody>${Object.entries(by).map(([n,v])=>`<tr><td>${n}</td><td class="td-r">${v.leads.toLocaleString()}</td><td class="td-r">$${v.amount.toFixed(2)}</td></tr>`).join('')}</tbody>
+  </table>`;
+}
+
+// ── Inline edit ───────────────────────────────────────────────────────────────
+function entryRow(e){
+  return `<tr id="row-${e.id}">
+    <td>${esc(e.client)}</td>
+    <td class="td-r">${e.leads.toLocaleString()}</td>
+    <td class="td-r">$${fmtRate(e.rate)}</td>
+    <td class="td-r">$${e.amount.toFixed(2)}</td>
+    <td style="white-space:nowrap;padding-left:8px">
+      <button class="btn btn-sm" onclick="startEdit(${e.id},${e.leads},${e.rate},'${esc(e.client)}')">Edit</button>
+      <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteRow(${e.id})">✕</button>
+    </td>
+  </tr>`;
+}
+
+function weeklyEntryRow(d, clientName){
+  return `<tr id="row-${d.id}">
+    <td>${esc(d.day)}</td><td>${esc(d.date)}</td>
+    <td class="td-r">${d.leads.toLocaleString()}</td>
+    <td class="td-r">$${fmtRate(d.rate)}</td>
+    <td class="td-r">$${d.amount.toFixed(2)}</td>
+    <td style="white-space:nowrap;padding-left:6px">
+      <button class="btn btn-sm" onclick="startEdit(${d.id},${d.leads},${d.rate},'${esc(clientName)}')">Edit</button>
+      <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteRow(${d.id})">✕</button>
+    </td>
+  </tr>`;
+}
+
+function startEdit(id, leads, rate, client){
+  const row = document.getElementById('row-'+id);
+  if (!row) return;
+  row.innerHTML = `
+    <td style="font-size:12px;color:var(--muted)">${client}</td>
+    <td class="td-r"><input type="number" id="el-${id}" value="${leads}" step="1000" min="1"
+      style="width:90px;height:28px;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:0 6px;text-align:right"></td>
+    <td class="td-r"><input type="number" id="er-${id}" value="${rate}" step="0.0001" min="0.0001"
+      style="width:80px;height:28px;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:0 6px;text-align:right"></td>
+    <td class="td-r" id="ep-${id}" style="color:var(--muted);font-size:13px">—</td>
+    <td style="white-space:nowrap;padding-left:8px">
+      <button class="btn btn-sm btn-primary" onclick="saveEdit(${id})">Save</button>
+      <button class="btn btn-sm" style="margin-left:4px" onclick="reloadActive()">Cancel</button>
+    </td>`;
+  const calc = () => {
+    const l = parseFloat(document.getElementById('el-'+id)?.value)||0;
+    const r = parseFloat(document.getElementById('er-'+id)?.value)||0;
+    const ep = document.getElementById('ep-'+id);
+    if (ep) ep.textContent = '$' + (l * r).toFixed(2);
+  };
+  document.getElementById('el-'+id).addEventListener('input', calc);
+  document.getElementById('er-'+id).addEventListener('input', calc);
+  calc();
+}
+
+function saveEdit(id){
+  const leads = parseFloat(document.getElementById('el-'+id)?.value);
+  const rate  = parseFloat(document.getElementById('er-'+id)?.value);
+  if (!leads||!rate) return;
+  editEntry(id, leads, rate);
+  reloadActive();
+}
+
+function deleteRow(id){
+  if (!confirm('Delete this entry?')) return;
+  deleteEntry(id);
+  reloadActive();
+}
+
+// ── Daily tab ─────────────────────────────────────────────────────────────────
+function loadDaily(){
+  const date = document.getElementById('daily-date').value;
+  const el   = document.getElementById('daily-out');
+  const data = viewDaily(date);
+  if (!data.entries.length){ el.innerHTML = `<div class="msg-info">No entries for ${fmtD(date)}.</div>`; return; }
+  el.innerHTML = `<div class="stat-bar">
+    <div class="stat"><div class="stat-lbl">Date</div><div class="stat-val">${fmtD(date)}</div></div>
+    <div class="stat"><div class="stat-lbl">Leads</div><div class="stat-val">${data.total_leads.toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">Total due</div><div class="stat-val">$${data.total_amount.toFixed(2)}</div></div>
+  </div>
+  <table><thead><tr><th>Client</th><th class="td-r">Leads</th><th class="td-r">Rate</th><th class="td-r">Amount</th><th></th></tr></thead>
+  <tbody>${data.entries.map(e => entryRow(e)).join('')}</tbody>
+  <tfoot><tr class="tr-total"><td>Total</td><td class="td-r">${data.total_leads.toLocaleString()}</td><td></td><td class="td-r">$${data.total_amount.toFixed(2)}</td><td></td></tr></tfoot>
+  </table>`;
+}
+
+// ── Weekly tab ────────────────────────────────────────────────────────────────
+function loadWeekly(){
+  const date = document.getElementById('weekly-date').value;
+  const sun  = getSun(date);
+  const el   = document.getElementById('weekly-out');
+  const data = viewWeekly(sun);
+  if (!data.clients.length){ el.innerHTML = `<div class="msg-info">No entries for week of ${data.week_label}.</div>`; return; }
+  el.innerHTML = `<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Week of ${data.week_label}</div>` +
+    data.clients.map(c => {
+      const dJ  = JSON.stringify(c.days);
+      const cJ  = JSON.stringify(c.client);
+      const emJ = JSON.stringify(c.email||'');
+      const wJ  = JSON.stringify(data.week_label);
+      return `<div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-name">${esc(c.client)}</div>
+            <div class="card-sub">${c.total_leads.toLocaleString()} leads &middot; $${fmtRate(c.rate)}/lead</div>
+          </div>
+          <div style="text-align:right">
+            <div class="card-amt">$${c.total_amount.toFixed(2)}</div>
+            <button class="btn btn-sm" style="margin-top:6px"
+              onclick='prefillInvoice(${cJ},${emJ},${wJ},${dJ})'>→ Invoice</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Day</th><th>Date</th><th class="td-r">Leads</th><th class="td-r">Rate</th><th class="td-r">Amount</th><th></th></tr></thead>
+          <tbody>${c.days.map(d => weeklyEntryRow(d, c.client)).join('')}</tbody>
+          <tfoot><tr class="tr-total"><td colspan="2">Total</td>
+            <td class="td-r">${c.total_leads.toLocaleString()}</td><td></td>
+            <td class="td-r">$${c.total_amount.toFixed(2)}</td><td></td></tr></tfoot>
+        </table>
+      </div>`;
+    }).join('');
+}
+
+// ── Settings tab ──────────────────────────────────────────────────────────────
+function loadSettingsTab(){
+  const s = S.settings();
+  defaultRate = parseFloat(s.default_rate) || 0.0015;
+  document.getElementById('set-current-rate').textContent = '$' + fmtRate(defaultRate) + ' / lead';
+  document.getElementById('set-rate').value = defaultRate;
+}
+
+function saveSettings(){
+  const rate = parseFloat(document.getElementById('set-rate').value);
+  const msg  = document.getElementById('set-rate-msg');
+  if (!rate){ msg.innerHTML = '<div class="msg-err">Enter a valid rate.</div>'; return; }
+  const s = S.settings();
+  s.default_rate = rate;
+  S.saveSett(s);
+  defaultRate = rate;
+  document.getElementById('set-current-rate').textContent = '$' + fmtRate(rate) + ' / lead';
+  document.getElementById('log-rate').value       = rate;
+  document.getElementById('inv-rate').value       = rate;
+  document.getElementById('set-apply-rate').value = rate;
+  msg.innerHTML = `<div class="msg-ok">Saved — new entries will use $${fmtRate(rate)}/lead.</div>`;
+  setTimeout(() => msg.innerHTML = '', 3000);
+}
+
+function applyWeekRate(){
+  const date = document.getElementById('set-week').value;
+  const rate = parseFloat(document.getElementById('set-apply-rate').value);
+  const msg  = document.getElementById('set-week-msg');
+  if (!date||!rate){ msg.innerHTML = '<div class="msg-err">Select a date and enter a rate.</div>'; return; }
+  const sun = getSun(date);
+  const r   = bulkRate(sun, rate);
+  msg.innerHTML = `<div class="msg-ok">Updated ${r.updated} entries to $${fmtRate(r.rate)}/lead for the week of ${fmtD(sun)}.</div>`;
+  reloadActive();
+}
+
+// Import / Export
+function importJSON(input){
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const msg = document.getElementById('set-data-msg');
+    try {
+      const incoming = JSON.parse(e.target.result);
+      if (!Array.isArray(incoming)) throw new Error('Expected a JSON array');
+      const existing = S.leads();
+      const existingIds = new Set(existing.map(x => String(x.id)));
+      const fresh = incoming.filter(x => !existingIds.has(String(x.id)));
+      S.saveLeads([...existing, ...fresh]);
+      refreshClients();
+      msg.innerHTML = `<div class="msg-ok">Imported ${fresh.length} new entries (${incoming.length - fresh.length} already existed).</div>`;
+      input.value = '';
+    } catch(err){
+      msg.innerHTML = `<div class="msg-err">Import failed: ${err.message}</div>`;
+    }
+  };
+  reader.readAsText(file);
+}
+
+function exportJSON(){
+  const data = S.leads();
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'leads_log.json';
+  a.click();
+}
+
+function clearData(){
+  if (!confirm('Delete ALL lead entries? This cannot be undone.')) return;
+  S.saveLeads([]);
+  refreshClients();
+  document.getElementById('set-data-msg').innerHTML = '<div class="msg-ok">All entries cleared.</div>';
+  reloadActive();
+}
+
+// ── Invoice tab ───────────────────────────────────────────────────────────────
+function fillInvEmail(){
+  const c = document.getElementById('inv-client').value.trim();
+  if (clientMap[c]) document.getElementById('inv-email').value = clientMap[c];
+}
+
+function addDay(dayName, dateVal, leadsVal){
+  const id  = ++dayCount;
+  const div = document.createElement('div');
+  div.id = 'dd'+id; div.className = 'day-row';
+  const dv = dateVal || document.getElementById('inv-date').value || today();
+  div.innerHTML = `
+    <div class="field" style="margin:0"><label>Day</label><input type="text" id="dd${id}n" value="${dayName||''}" placeholder="Monday"></div>
+    <div class="field" style="margin:0"><label>Date</label><input type="date" id="dd${id}d" value="${dv}" oninput="autoDay(${id});recalcInv()"></div>
+    <div class="field" style="margin:0"><label>Leads</label><input type="number" id="dd${id}l" value="${leadsVal||''}" placeholder="50000" min="1" step="1000" oninput="recalcInv()"></div>
+    <button class="rm-btn" onclick="rmDay(${id})">×</button>`;
+  document.getElementById('inv-days').appendChild(div);
+  if (dayName) autoDay(id);
+}
+
+function autoDay(id){
+  const d = new Date(document.getElementById('dd'+id+'d').value + 'T12:00:00');
+  if (!isNaN(d)) document.getElementById('dd'+id+'n').value = DAY_NAMES[d.getDay()];
+}
+function rmDay(id){ const e = document.getElementById('dd'+id); if(e) e.remove(); recalcInv(); }
+function recalcInv(){
+  const rate = parseFloat(document.getElementById('inv-rate').value) || 0;
+  let t = 0;
+  for (let i = 1; i <= dayCount; i++){
+    const e = document.getElementById('dd'+i+'l');
+    if (e) t += (parseFloat(e.value)||0) * rate;
+  }
+  document.getElementById('inv-total').textContent = '$' + t.toFixed(2);
+}
+
+function prefillInvoice(client, email, weekLabel, days){
+  tab('invoice');
+  document.getElementById('inv-client').value = client;
+  document.getElementById('inv-email').value  = email || clientMap[client] || '';
+  document.getElementById('inv-week').value   = weekLabel;
+  if (days[0]?.rate) document.getElementById('inv-rate').value = days[0].rate;
+  document.getElementById('inv-days').innerHTML = ''; dayCount = 0;
+  days.forEach(d => addDay(d.day, isoDate(d.date), d.leads));
+  recalcInv();
+}
+
+function isoDate(s){
+  if (!s) return '';
+  const d = new Date(s + ' 12:00:00');
+  return isNaN(d) ? '' : localDate(d);
+}
+
+function buildInvoiceJSON(){
+  const num    = document.getElementById('inv-num').value.trim();
+  const date   = document.getElementById('inv-date').value;
+  const week   = document.getElementById('inv-week').value.trim();
+  const client = document.getElementById('inv-client').value.trim();
+  const email  = document.getElementById('inv-email').value.trim();
+  const rate   = parseFloat(document.getElementById('inv-rate').value) || 0;
+  const res    = document.getElementById('inv-res');
+  if (!num||!date||!week||!client||!email){ res.innerHTML='<div class="msg-err">Fill in all fields.</div>'; return; }
+  const fmtDate = new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'});
+  const days = [];
+  for (let i = 1; i <= dayCount; i++){
+    const ne=document.getElementById('dd'+i+'n'), de=document.getElementById('dd'+i+'d'), le=document.getElementById('dd'+i+'l');
+    if (!le) continue;
+    const leads = parseInt(le.value)||0; if (!leads) continue;
+    const d = new Date(de.value+'T12:00:00');
+    days.push({day:ne.value||DAY_NAMES[d.getDay()],date:d.toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'numeric'}),leads,amount:Math.round(leads*rate*100)/100});
+  }
+  if (!days.length){ res.innerHTML='<div class="msg-err">Add at least one day entry.</div>'; return; }
+  const total   = Math.round(days.reduce((s,d)=>s+d.amount,0)*100)/100;
+  const payload = {invoiceNum:num,invoiceDate:fmtDate,weekRange:week,clientName:client,clientEmail:email,days,totalDue:total};
+  const cmd = 'GENERATE_INVOICE:' + JSON.stringify(payload);
+  res.innerHTML = `
+    <div style="margin-top:14px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Copy and paste into your Jawnix Cowork chat to generate the PDF:</div>
+      <div class="json-out" id="inv-json">${cmd}</div>
+      <div class="copy-row">
+        <button class="btn btn-sm" onclick="copyJSON()">Copy</button>
+        <span id="copy-badge" style="display:none" class="badge badge-ok">Copied!</span>
+      </div>
+    </div>`;
+  document.getElementById('inv-num').value = num.replace(/(\d+)$/, n => String(parseInt(n)+1).padStart(n.length,'0'));
+}
+
+function copyJSON(){
+  navigator.clipboard.writeText(document.getElementById('inv-json').textContent).then(()=>{
+    const b = document.getElementById('copy-badge');
+    b.style.display = 'inline-block';
+    setTimeout(()=>b.style.display='none', 2000);
+  });
+}
+
+init();
+</script>
+</body>
+</html>
