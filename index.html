@@ -522,7 +522,14 @@ function loadWeekly(){
   const el   = document.getElementById('weekly-out');
   const data = viewWeekly(sun);
   if (!data.clients.length){ el.innerHTML = `<div class="msg-info">No entries for week of ${data.week_label}.</div>`; return; }
-  el.innerHTML = `<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Week of ${data.week_label}</div>` +
+  const weekLeads  = data.clients.reduce((s,c) => s + c.total_leads,  0);
+  const weekAmount = data.clients.reduce((s,c) => s + c.total_amount, 0);
+  el.innerHTML = `<div style="font-size:13px;color:var(--muted);margin-bottom:12px">Week of ${data.week_label}</div>
+  <table style="margin-bottom:18px">
+    <thead><tr><th>Client</th><th class="td-r">Leads</th><th class="td-r">Amount</th></tr></thead>
+    <tbody>${data.clients.map(c=>`<tr><td>${esc(c.client)}</td><td class="td-r">${c.total_leads.toLocaleString()}</td><td class="td-r">$${c.total_amount.toFixed(2)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr class="tr-total"><td>Total</td><td class="td-r">${weekLeads.toLocaleString()}</td><td class="td-r">$${weekAmount.toFixed(2)}</td></tr></tfoot>
+  </table>` +
     data.clients.map(c => {
       const dJ  = JSON.stringify(c.days);
       const cJ  = JSON.stringify(c.client);
