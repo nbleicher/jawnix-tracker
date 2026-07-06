@@ -6,12 +6,16 @@
 <title>Jawnix — Lead Tracker</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="./config.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{--blue:#185FA5;--blue-lt:#dbeafe;--navy:#1f4e79;--surface:#f8fafc;--border:#e2e8f0;--text:#0f172a;--muted:#64748b;--r:8px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:#fff}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;color:var(--text);background:#fff;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+button,input{font:inherit}
 .header{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
-.logo{font-size:17px;font-weight:700;letter-spacing:.05em}.logo span{color:#60a5fa}
+.logo{font-size:17px;font-weight:800;letter-spacing:.04em}.logo span{color:#60a5fa}
 .header-sub{font-size:12px;opacity:.65}
 .tabs{display:flex;border-bottom:1px solid var(--border);padding:0 24px;background:#fff;position:sticky;top:0;z-index:10;overflow-x:auto}
 .tab{padding:11px 16px;font-size:13px;cursor:pointer;border:none;border-bottom:2px solid transparent;color:var(--muted);background:none;font-weight:500;white-space:nowrap}
@@ -25,13 +29,18 @@ input[type=text],input[type=email],input[type=number],input[type=date],input[typ
 input[type=file]{padding:6px 10px;height:auto}
 input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,95,165,.1)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.btn{height:36px;border-radius:var(--r);font-size:13px;cursor:pointer;padding:0 16px;border:1px solid var(--border);background:#fff;color:var(--text);font-weight:500}
+.btn{height:36px;border-radius:var(--r);font-size:13px;line-height:1;cursor:pointer;padding:0 16px;border:1px solid var(--border);background:#fff;color:var(--text);font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:background .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease}
 .btn:hover{background:var(--surface)}
+.btn:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(24,95,165,.16)}
+.btn:disabled{opacity:.62;cursor:not-allowed}
 .btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}
 .btn-primary:hover{background:var(--navy);border-color:var(--navy)}
 .btn-sm{height:28px;font-size:12px;padding:0 10px}
 .btn-danger{border-color:#fca5a5;color:#dc2626}
 .btn-danger:hover{background:#fef2f2}
+.btn-pay{background:#0f172a;color:#fff;border-color:#0f172a;box-shadow:0 1px 2px rgba(15,23,42,.12)}
+.btn-pay:hover{background:#1e293b;border-color:#1e293b}
+.btn-pay::before{content:"$";display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.16);font-size:11px;font-weight:800}
 .stat-bar{display:flex;gap:24px;background:var(--blue-lt);border-radius:var(--r);padding:12px 16px;margin-bottom:18px;flex-wrap:wrap}
 .stat-lbl{font-size:10px;color:var(--blue);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 .stat-val{font-size:20px;font-weight:700;color:var(--navy);line-height:1.3}
@@ -250,7 +259,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     <div class="json-out" id="m-json"></div>
     <div class="copy-row">
       <button class="btn btn-primary" id="m-generate-btn" onclick="generateInvoicePDF()">Download PDF</button>
-      <a class="btn" id="m-pay-link" href="#" target="_blank" rel="noopener" style="display:none">Pay on Stripe</a>
+      <a class="btn btn-pay" id="m-pay-link" href="#" target="_blank" rel="noopener" style="display:none">Pay on Stripe</a>
       <span id="m-copy-badge" style="display:none" class="badge badge-ok">PDF downloaded</span>
     </div>
   </div>
