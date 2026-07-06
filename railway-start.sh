@@ -2,11 +2,13 @@
 set -eu
 
 : "${PORT:=8080}"
+: "${JAWNIX_API_PORT:=8001}"
 : "${JAWNIX_WORKSPACE_ID:=default}"
 : "${JAWNIX_LEADS_TABLE:=jawnix_leads}"
 : "${JAWNIX_SETTINGS_TABLE:=jawnix_settings}"
 : "${CADDY_BIN:=caddy}"
 : "${APP_DIR:=/app}"
+: "${JAWNIX_INVOICE_DIR:=$APP_DIR/invoices}"
 : "${JAWNIX_ALLOW_UNPROTECTED:=false}"
 : "${JAWNIX_BASIC_AUTH_USER:=}"
 : "${JAWNIX_BASIC_AUTH_HASH:=}"
@@ -39,6 +41,18 @@ window.JAWNIX_CONFIG = {
 };
 EOF
 
+mkdir -p "$JAWNIX_INVOICE_DIR"
+python3 "$APP_DIR/app.py" &
+api_pid="$!"
+
+cleanup() {
+  kill "$api_pid" 2>/dev/null || true
+  if [ "${caddy_pid:-}" ]; then
+    kill "$caddy_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup INT TERM EXIT
+
 cat > "$APP_DIR/Caddyfile.generated" <<EOF
 {
 	admin off
@@ -51,6 +65,31 @@ cat > "$APP_DIR/Caddyfile.generated" <<EOF
 
 	handle /healthz {
 		respond "ok" 200
+	}
+
+	@api_preflight {
+		path /api/*
+		method OPTIONS
+	}
+	handle @api_preflight {
+		reverse_proxy 127.0.0.1:$JAWNIX_API_PORT
+	}
+
+	handle /api/* {
+EOF
+
+if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
+  cat >> "$APP_DIR/Caddyfile.generated" <<EOF
+
+	basic_auth {
+		$JAWNIX_BASIC_AUTH_USER $JAWNIX_BASIC_AUTH_HASH
+	}
+EOF
+fi
+
+cat >> "$APP_DIR/Caddyfile.generated" <<'EOF'
+
+	reverse_proxy 127.0.0.1:__JAWNIX_API_PORT__
 	}
 
 	handle {
@@ -78,4 +117,8 @@ cat >> "$APP_DIR/Caddyfile.generated" <<'EOF'
 }
 EOF
 
-exec "$CADDY_BIN" run --config "$APP_DIR/Caddyfile.generated" --adapter caddyfile
+sed -i "s/__JAWNIX_API_PORT__/$JAWNIX_API_PORT/g" "$APP_DIR/Caddyfile.generated"
+
+"$CADDY_BIN" run --config "$APP_DIR/Caddyfile.generated" --adapter caddyfile &
+caddy_pid="$!"
+wait "$caddy_pid"

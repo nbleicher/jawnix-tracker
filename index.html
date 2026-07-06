@@ -249,8 +249,9 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
     <div class="json-out" id="m-json"></div>
     <div class="copy-row">
-      <button class="btn btn-primary" onclick="copyInvJSON()">Copy to chat</button>
-      <span id="m-copy-badge" style="display:none" class="badge badge-ok">Copied! Paste into Cowork chat</span>
+      <button class="btn btn-primary" id="m-generate-btn" onclick="generateInvoicePDF()">Download PDF</button>
+      <a class="btn" id="m-pay-link" href="#" target="_blank" rel="noopener" style="display:none">Pay on Stripe</a>
+      <span id="m-copy-badge" style="display:none" class="badge badge-ok">PDF downloaded</span>
     </div>
   </div>
 </div>
@@ -797,17 +798,18 @@ function openInvModal(clientIdx){
 
   rebuildInvJSON();
   document.getElementById('m-copy-badge').style.display='none';
+  document.getElementById('m-pay-link').style.display='none';
   document.getElementById('inv-modal-bg').classList.add('open');
 }
 
-function rebuildInvJSON(){
+function buildInvPayload(){
   if(!_modalData) return;
   const num    = document.getElementById('m-inv-num').value.trim();
   const date   = document.getElementById('m-inv-date').value;
-  if(!num||!date){document.getElementById('m-json').textContent='Fill in invoice # and date above.';return;}
+  if(!num||!date) return null;
   const fmtDate = new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'});
   const total   = Math.round(_modalData.days.reduce((s,d)=>s+d.amount,0)*100)/100;
-  const payload = {
+  return {
     invoiceNum:   num,
     invoiceDate:  fmtDate,
     weekRange:    _modalData.weekLabel,
@@ -816,20 +818,69 @@ function rebuildInvJSON(){
     days: _modalData.days.map(d=>({day:d.day,date:d.date,leads:d.leads,amount:d.amount})),
     totalDue: total,
   };
-  document.getElementById('m-json').textContent = 'GENERATE_INVOICE:'+JSON.stringify(payload);
 }
 
-async function copyInvJSON(){
-  const text = document.getElementById('m-json').textContent;
-  if(!text.startsWith('GENERATE_INVOICE:')) return;
-  navigator.clipboard.writeText(text).then(async ()=>{
+function rebuildInvJSON(){
+  const payload = buildInvPayload();
+  document.getElementById('m-json').textContent = payload
+    ? JSON.stringify(payload,null,2)
+    : 'Fill in invoice # and date above.';
+}
+
+function filenameFromDisposition(disposition){
+  const match = String(disposition||'').match(/filename="?([^"]+)"?/i);
+  return match ? match[1] : 'invoice.pdf';
+}
+
+async function generateInvoicePDF(){
+  const payload = buildInvPayload();
+  if(!payload) return;
+  const btn=document.getElementById('m-generate-btn');
+  const badge=document.getElementById('m-copy-badge');
+  btn.disabled=true;
+  btn.textContent='Generating...';
+  badge.style.display='none';
+  try{
+    const res=await fetch('/api/generate-invoice',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload),
+    });
+    if(!res.ok){
+      let detail='Invoice generation failed.';
+      try{ detail=(await res.json()).error || detail; }catch(_err){}
+      throw new Error(detail);
+    }
+    const blob=await res.blob();
+    const checkoutUrl=res.headers.get('X-Stripe-Checkout-Url');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=filenameFromDisposition(res.headers.get('Content-Disposition'));
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
     await bumpInvNum();
-    const b=document.getElementById('m-copy-badge');
-    b.style.display='inline-block';
-    // update displayed next # in modal for subsequent use
     document.getElementById('m-inv-num').value = nextInvNum();
     rebuildInvJSON();
-  });
+    if(checkoutUrl){
+      const payLink=document.getElementById('m-pay-link');
+      payLink.href=checkoutUrl;
+      payLink.style.display='inline-flex';
+    }
+    badge.textContent='PDF downloaded';
+    badge.className='badge badge-ok';
+    badge.style.background='';
+    badge.style.color='';
+    badge.style.display='inline-block';
+  }catch(err){
+    badge.textContent=err.message;
+    badge.className='badge';
+    badge.style.background='#fee2e2';
+    badge.style.color='#991b1b';
+    badge.style.display='inline-block';
+  }finally{
+    btn.disabled=false;
+    btn.textContent='Download PDF';
+  }
 }
 
 function closeInvModal(e){

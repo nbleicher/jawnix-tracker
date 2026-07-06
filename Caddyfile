@@ -11,6 +11,22 @@
 		respond "ok" 200
 	}
 
+	@api_preflight {
+		path /api/*
+		method OPTIONS
+	}
+	handle @api_preflight {
+		reverse_proxy 127.0.0.1:{$JAWNIX_API_PORT:8001}
+	}
+
+	handle /api/* {
+		basic_auth {
+			{$JAWNIX_BASIC_AUTH_USER} {$JAWNIX_BASIC_AUTH_HASH}
+		}
+
+		reverse_proxy 127.0.0.1:{$JAWNIX_API_PORT:8001}
+	}
+
 	handle {
 		basic_auth {
 			{$JAWNIX_BASIC_AUTH_USER} {$JAWNIX_BASIC_AUTH_HASH}
