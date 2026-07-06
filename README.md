@@ -32,6 +32,7 @@ JAWNIX_LEADS_TABLE=jawnix_leads
 JAWNIX_SETTINGS_TABLE=jawnix_settings
 JAWNIX_BASIC_AUTH_USER=jawnix
 JAWNIX_BASIC_AUTH_HASH=GENERATE_WITH_CADDY_HASH_PASSWORD
+PORT=8080
 ```
 
 The same variables are listed in `.env.example`.
@@ -56,7 +57,8 @@ railway variable set \
   JAWNIX_LEADS_TABLE=jawnix_leads \
   JAWNIX_SETTINGS_TABLE=jawnix_settings \
   JAWNIX_BASIC_AUTH_USER=jawnix \
-  JAWNIX_BASIC_AUTH_HASH='PASTE-CADDY-HASH-HERE'
+  JAWNIX_BASIC_AUTH_HASH='PASTE-CADDY-HASH-HERE' \
+  PORT=8080
 railway up
 railway domain
 ```

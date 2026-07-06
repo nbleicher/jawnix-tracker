@@ -6,4 +6,6 @@ COPY index.html config.example.js supabase-schema.sql README.md Caddyfile railwa
 
 RUN chmod +x /app/railway-start.sh
 
+EXPOSE 8080
+
 CMD ["/app/railway-start.sh"]
