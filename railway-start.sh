@@ -57,7 +57,9 @@ EOF
 if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
   cat >> "$APP_DIR/Caddyfile.generated" <<EOF
 
-	@protected not path /healthz
+	@protected {
+		not path /healthz
+	}
 	basic_auth @protected {
 		$JAWNIX_BASIC_AUTH_USER $JAWNIX_BASIC_AUTH_HASH
 	}
