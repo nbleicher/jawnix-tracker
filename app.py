@@ -36,6 +36,12 @@ XML_NS = "http://www.w3.org/XML/1998/namespace"
 W = f"{{{W_NS}}}"
 R = f"{{{R_NS}}}"
 XML = f"{{{XML_NS}}}"
+ARIAL_FONT_ATTRS = {
+    W + "ascii": "Arial",
+    W + "hAnsi": "Arial",
+    W + "eastAsia": "Arial",
+    W + "cs": "Arial",
+}
 
 
 for prefix, uri in {
@@ -123,6 +129,7 @@ def normalize_invoice(payload):
         "totalLeads": total_leads,
         "totalDue": total_due,
         "paymentUrl": str(payload.get("paymentUrl", "")).strip(),
+        "paymentSessionId": str(payload.get("paymentSessionId", "")).strip(),
     }
 
 
@@ -134,7 +141,7 @@ def public_base_url():
 def create_stripe_checkout_session(invoice):
     secret_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
     if not secret_key:
-        return ""
+        return "", ""
 
     amount_cents = int(round(float(invoice["totalDue"]) * 100))
     if amount_cents <= 0:
@@ -180,9 +187,45 @@ def create_stripe_checkout_session(invoice):
         raise RuntimeError(detail or "Stripe Checkout Session creation failed.") from exc
 
     checkout_url = str(data.get("url", "")).strip()
+    checkout_session_id = str(data.get("id", "")).strip()
     if not checkout_url:
         raise RuntimeError("Stripe did not return a Checkout URL.")
-    return checkout_url
+    return checkout_url, checkout_session_id
+
+
+def expire_stripe_checkout_session(session_id):
+    session_id = str(session_id or "").strip()
+    if not session_id:
+        raise ValueError("Missing Stripe Checkout Session ID.")
+
+    secret_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+    if not secret_key:
+        raise ValueError("STRIPE_SECRET_KEY is required to void Stripe checkout sessions.")
+
+    quoted_id = urllib.parse.quote(session_id, safe="")
+    request = urllib.request.Request(
+        f"{STRIPE_API_URL}/{quoted_id}/expire",
+        data=b"",
+        headers={
+            "Authorization": f"Bearer {secret_key}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("error", {}).get("message")
+        except Exception:
+            detail = None
+        raise RuntimeError(detail or f"Stripe Checkout Session {session_id} could not be expired.") from exc
+
+    return {
+        "id": str(data.get("id", session_id)),
+        "status": str(data.get("status", "")),
+    }
 
 
 def table_cell(text, align="left", bold=False):
@@ -190,7 +233,9 @@ def table_cell(text, align="left", bold=False):
     bold_tag = "<w:b/>" if bold else ""
     return (
         "<w:tc><w:tcPr><w:tcW w:w=\"0\" w:type=\"auto\"/></w:tcPr>"
-        f"<w:p><w:pPr>{justification}</w:pPr><w:r><w:rPr>{bold_tag}</w:rPr>"
+        f"<w:p><w:pPr>{justification}</w:pPr><w:r><w:rPr><w:rFonts "
+        'w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial" w:cs="Arial"/>'
+        f"{bold_tag}</w:rPr>"
         f"<w:t>{xml_escape(str(text))}</w:t></w:r></w:p></w:tc>"
     )
 
@@ -215,8 +260,9 @@ def payment_link_xml(url):
     return (
         "<w:p>"
         '<w:hyperlink r:id="rIdStripePayment">'
-        '<w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr>'
-        "<w:t>Click here to pay securely with Stripe</w:t>"
+        '<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial" w:cs="Arial"/>'
+        '<w:rStyle w:val="Hyperlink"/><w:b/><w:color w:val="1F4E79"/><w:u w:val="single"/></w:rPr>'
+        "<w:t>Pay now</w:t>"
         "</w:r></w:hyperlink>"
         "</w:p>"
     )
@@ -396,6 +442,29 @@ def add_run_property(parent, tag, attrs=None):
     return ET.SubElement(parent, W + tag, attrs or {})
 
 
+def run_properties(run):
+    props = run.find(W + "rPr")
+    if props is None:
+        props = ET.Element(W + "rPr")
+        run.insert(0, props)
+    return props
+
+
+def force_run_font(run, font_name="Arial"):
+    props = run_properties(run)
+    fonts = props.find(W + "rFonts")
+    if fonts is None:
+        fonts = ET.Element(W + "rFonts")
+        props.insert(0, fonts)
+    for attr in (W + "ascii", W + "hAnsi", W + "eastAsia", W + "cs"):
+        fonts.set(attr, font_name)
+
+
+def force_document_font(root, font_name="Arial"):
+    for run in root.iter(W + "r"):
+        force_run_font(run, font_name)
+
+
 def fill_payment_link(root, url):
     for paragraph in root.iter(W + "p"):
         if element_text(paragraph).startswith("Pay Online:"):
@@ -405,6 +474,7 @@ def fill_payment_link(root, url):
                     paragraph.remove(child)
 
             label_run = ET.SubElement(paragraph, W + "r")
+            force_run_font(label_run)
             label_text = ET.SubElement(label_run, W + "t")
             label_text.set(XML + "space", "preserve")
             label_text.text = "Pay Online: "
@@ -413,15 +483,17 @@ def fill_payment_link(root, url):
                 hyperlink = ET.SubElement(paragraph, W + "hyperlink", {R + "id": "rIdStripePayment"})
                 run = ET.SubElement(hyperlink, W + "r")
                 run_props = ET.SubElement(run, W + "rPr")
+                fonts = ET.SubElement(run_props, W + "rFonts")
+                for attr, value in ARIAL_FONT_ATTRS.items():
+                    fonts.set(attr, value)
                 add_run_property(run_props, "b")
-                add_run_property(run_props, "color", {W + "val": "FFFFFF"})
-                add_run_property(run_props, "sz", {W + "val": "18"})
-                add_run_property(run_props, "shd", {W + "val": "clear", W + "fill": "1F4E79"})
+                add_run_property(run_props, "color", {W + "val": "1F4E79"})
+                add_run_property(run_props, "u", {W + "val": "single"})
                 text = ET.SubElement(run, W + "t")
-                text.set(XML + "space", "preserve")
-                text.text = f"  {payment_url_text(url)}  "
+                text.text = "Pay now"
             else:
                 run = ET.SubElement(paragraph, W + "r")
+                force_run_font(run)
                 text = ET.SubElement(run, W + "t")
                 text.text = payment_url_text(url)
             return
@@ -442,6 +514,7 @@ def render_attached_template_document(content, invoice):
     fill_line_items(root, invoice)
     fill_totals(root, invoice)
     fill_payment_link(root, invoice["paymentUrl"])
+    force_document_font(root)
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
@@ -511,7 +584,8 @@ def convert_docx_to_pdf(docx_path, output_dir):
 
 def build_invoice_pdf(payload):
     invoice = normalize_invoice(payload)
-    invoice["paymentUrl"] = invoice["paymentUrl"] or create_stripe_checkout_session(invoice)
+    if not invoice["paymentUrl"]:
+        invoice["paymentUrl"], invoice["paymentSessionId"] = create_stripe_checkout_session(invoice)
     INVOICE_DIR.mkdir(parents=True, exist_ok=True)
 
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
@@ -542,7 +616,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", os.environ.get("JAWNIX_CORS_ORIGIN", "*"))
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Expose-Headers", "Content-Disposition, X-Stripe-Checkout-Url")
+        self.send_header(
+            "Access-Control-Expose-Headers",
+            "Content-Disposition, X-Stripe-Checkout-Url, X-Stripe-Checkout-Session-Id",
+        )
         self.send_header("Vary", "Origin")
         super().end_headers()
 
@@ -565,22 +642,63 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
+        path = urlparse(self.path).path
+        if path == "/api/generate-invoice":
+            self.handle_generate_invoice()
+            return
+        if path == "/api/void-invoice":
+            self.handle_void_invoice()
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
+    def read_json_body(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            raise ValueError("Invalid Content-Length.")
+
+        if length <= 0 or length > MAX_BODY_BYTES:
+            raise ValueError("Invalid request size.")
+
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def handle_void_invoice(self):
+        try:
+            payload = self.read_json_body()
+            session_ids = payload.get("checkoutSessionIds", [])
+            if not isinstance(session_ids, list):
+                raise ValueError("checkoutSessionIds must be an array.")
+            expired = []
+            errors = []
+            for session_id in session_ids:
+                try:
+                    expired.append(expire_stripe_checkout_session(session_id))
+                except Exception as exc:
+                    errors.append({"id": str(session_id), "error": str(exc)})
+            status = HTTPStatus.MULTI_STATUS if errors else HTTPStatus.OK
+            self.send_json(status, {"expired": expired, "errors": errors})
+        except json.JSONDecodeError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Request body must be valid JSON."})
+        except ValueError as exc:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception as exc:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+    def handle_generate_invoice(self):
         if urlparse(self.path).path != "/api/generate-invoice":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
 
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid Content-Length."})
+            payload = self.read_json_body()
+        except json.JSONDecodeError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Request body must be valid JSON."})
             return
-
-        if length <= 0 or length > MAX_BODY_BYTES:
-            self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "Invalid request size."})
+        except ValueError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid request size."})
             return
 
         try:
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
             pdf_path, invoice = build_invoice_pdf(payload)
             data = pdf_path.read_bytes()
         except ValueError as exc:
@@ -599,6 +717,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Disposition", f'attachment; filename="{pdf_path.name}"')
         if invoice["paymentUrl"]:
             self.send_header("X-Stripe-Checkout-Url", invoice["paymentUrl"])
+        if invoice["paymentSessionId"]:
+            self.send_header("X-Stripe-Checkout-Session-Id", invoice["paymentSessionId"])
         self.end_headers()
         self.wfile.write(data)
 

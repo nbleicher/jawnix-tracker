@@ -18,14 +18,41 @@ create table if not exists public.jawnix_leads (
   primary key (workspace_id, id)
 );
 
+create table if not exists public.jawnix_invoice_voids (
+  workspace_id text not null,
+  week_start date not null,
+  client text not null check (length(trim(client)) > 0),
+  voided_at timestamptz not null default now(),
+  primary key (workspace_id, week_start, client)
+);
+
+create table if not exists public.jawnix_invoice_records (
+  workspace_id text not null,
+  week_start date not null,
+  client text not null check (length(trim(client)) > 0),
+  invoice_num text not null check (length(trim(invoice_num)) > 0),
+  checkout_session_id text not null default '',
+  checkout_url text not null default '',
+  pdf_filename text not null default '',
+  total_due numeric(12, 2) not null default 0,
+  generated_at timestamptz not null default now(),
+  voided_at timestamptz,
+  primary key (workspace_id, week_start, client, invoice_num)
+);
+
 create index if not exists jawnix_leads_workspace_date_idx
   on public.jawnix_leads (workspace_id, date);
 
 create index if not exists jawnix_leads_workspace_client_idx
   on public.jawnix_leads (workspace_id, client);
 
+create index if not exists jawnix_invoice_records_workspace_week_client_idx
+  on public.jawnix_invoice_records (workspace_id, week_start, client);
+
 alter table public.jawnix_settings enable row level security;
 alter table public.jawnix_leads enable row level security;
+alter table public.jawnix_invoice_voids enable row level security;
+alter table public.jawnix_invoice_records enable row level security;
 
 -- These policies are intended for a private/protected static deployment.
 -- For a public app, add Supabase Auth and restrict each policy by user.
@@ -35,6 +62,10 @@ drop policy if exists "jawnix leads read" on public.jawnix_leads;
 drop policy if exists "jawnix leads insert" on public.jawnix_leads;
 drop policy if exists "jawnix leads update" on public.jawnix_leads;
 drop policy if exists "jawnix leads delete" on public.jawnix_leads;
+drop policy if exists "jawnix invoice voids read" on public.jawnix_invoice_voids;
+drop policy if exists "jawnix invoice voids write" on public.jawnix_invoice_voids;
+drop policy if exists "jawnix invoice records read" on public.jawnix_invoice_records;
+drop policy if exists "jawnix invoice records write" on public.jawnix_invoice_records;
 
 create policy "jawnix settings read"
   on public.jawnix_settings for select
@@ -67,3 +98,25 @@ create policy "jawnix leads delete"
   on public.jawnix_leads for delete
   to anon
   using (true);
+
+create policy "jawnix invoice voids read"
+  on public.jawnix_invoice_voids for select
+  to anon
+  using (true);
+
+create policy "jawnix invoice voids write"
+  on public.jawnix_invoice_voids for all
+  to anon
+  using (true)
+  with check (true);
+
+create policy "jawnix invoice records read"
+  on public.jawnix_invoice_records for select
+  to anon
+  using (true);
+
+create policy "jawnix invoice records write"
+  on public.jawnix_invoice_records for all
+  to anon
+  using (true)
+  with check (true);
