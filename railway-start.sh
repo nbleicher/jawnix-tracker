@@ -45,7 +45,8 @@ cat > "$APP_DIR/Caddyfile.generated" <<EOF
 	auto_https off
 }
 
-0.0.0.0:$PORT {
+:$PORT {
+	bind 0.0.0.0
 	root * $APP_DIR
 
 	handle /healthz {

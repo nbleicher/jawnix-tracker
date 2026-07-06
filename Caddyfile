@@ -3,7 +3,8 @@
 	auto_https off
 }
 
-0.0.0.0:{$PORT:8080} {
+:{$PORT:8080} {
+	bind 0.0.0.0
 	root * /app
 
 	handle /healthz {
