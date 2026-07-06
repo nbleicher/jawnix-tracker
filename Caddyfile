@@ -1,0 +1,25 @@
+{
+	admin off
+	auto_https off
+}
+
+:{$PORT:8080} {
+	root * /app
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	@protected not path /healthz
+	basicauth @protected {
+		{$JAWNIX_BASIC_AUTH_USER} {$JAWNIX_BASIC_AUTH_HASH}
+	}
+
+	try_files {path} /index.html
+	file_server
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer-when-downgrade
+	}
+}

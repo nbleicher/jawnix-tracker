@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Jawnix — Lead Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
 <style>
 :root{--blue:#185FA5;--blue-lt:#dbeafe;--navy:#1f4e79;--surface:#f8fafc;--border:#e2e8f0;--text:#0f172a;--muted:#64748b;--r:8px}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -165,6 +167,25 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     </div>
 
     <div class="settings-box">
+      <div class="sec-lbl">Client details</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Update a client name or email across every saved entry.</p>
+      <div class="field" style="max-width:400px">
+        <label>Client</label>
+        <select id="set-client-select" onchange="loadClientEditor()" style="height:36px;border:1px solid var(--border);border-radius:var(--r);padding:0 10px;font-size:14px;color:var(--text);background:#fff;width:100%"></select>
+      </div>
+      <div class="row2" style="max-width:520px">
+        <div class="field" style="margin:0"><label>Name</label>
+          <input type="text" id="set-client-name" placeholder="Client name">
+        </div>
+        <div class="field" style="margin:0"><label>Email</label>
+          <input type="email" id="set-client-email" placeholder="client@example.com">
+        </div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:12px" onclick="saveClientDetails()">Save client</button>
+      <div id="set-client-msg"></div>
+    </div>
+
+    <div class="settings-box">
       <div class="sec-lbl">Apply rate to an entire week</div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Updates every entry for the selected week — useful when changing pricing after entries are already logged.</p>
       <div class="row2" style="max-width:400px">
@@ -236,28 +257,223 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
 <script>
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-let activeTab = 'log', defaultRate = 0.0015, dayCount = 0, clientMap = {};
+let activeTab = 'log', defaultRate = 0.0015, clientMap = {};
 let _modalData = null;
+let _leads = [];
+let _settings = {default_rate:0.0015,invoice_counter:1};
 
 // ── Storage ───────────────────────────────────────────────────────────────────
-const S = {
-  leads:    () => JSON.parse(localStorage.getItem('jawnix_leads')    || '[]'),
-  settings: () => JSON.parse(localStorage.getItem('jawnix_settings') || '{"default_rate":0.0015,"invoice_counter":1}'),
-  saveLeads:(d) => localStorage.setItem('jawnix_leads',    JSON.stringify(d)),
-  saveSett: (s) => localStorage.setItem('jawnix_settings', JSON.stringify(s)),
+const LEAD_FIELDS = 'id,date,client,email,leads,rate,amount';
+const DB = {
+  client:null,
+  workspaceId:'default',
+  leadTable:'jawnix_leads',
+  settingsTable:'jawnix_settings',
+  init: () => {
+    const cfg = window.JAWNIX_CONFIG || {};
+    if(!cfg.supabaseUrl || !cfg.supabaseAnonKey){
+      throw new Error('Missing Supabase config. Add config.js from config.example.js before deploying.');
+    }
+    if(!window.supabase?.createClient){
+      throw new Error('Supabase client library did not load.');
+    }
+    DB.client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+    DB.workspaceId = cfg.workspaceId || 'default';
+    DB.leadTable = cfg.leadsTable || DB.leadTable;
+    DB.settingsTable = cfg.settingsTable || DB.settingsTable;
+  },
+  fail: (error) => {
+    if(error) throw new Error(error.message || 'Database request failed.');
+  },
+  normalizeLead: (lead) => ({
+    ...lead,
+    id:Number(lead.id),
+    leads:Number(lead.leads),
+    rate:Number(lead.rate),
+    amount:Number(lead.amount),
+  }),
+  normalizeSettings: (settings) => ({
+    default_rate:Number(settings.default_rate),
+    invoice_counter:Number(settings.invoice_counter),
+  }),
+  nextLeadId: () => {
+    const used = new Set(_leads.map(x=>String(x.id)));
+    let id = Date.now();
+    while(used.has(String(id))) id++;
+    return id;
+  },
+  leadRecord: (payload, includeId=false) => {
+    const leads=parseInt(payload.leads);
+    const rate=parseFloat(payload.rate);
+    const client=String(payload.client||'').trim();
+    if(!payload.date || !client || !leads || leads<=0 || !rate || rate<=0) throw new Error('Fill in all fields.');
+    const record = {
+      workspace_id:DB.workspaceId,
+      date:payload.date,
+      client,
+      email:String(payload.email||'').trim(),
+      leads,
+      rate,
+    };
+    if(includeId && payload.id) record.id=Number(payload.id);
+    return record;
+  },
+  load: async () => {
+    DB.init();
+    const [leadsRes, settingsRes] = await Promise.all([
+      DB.client.from(DB.leadTable).select(LEAD_FIELDS).eq('workspace_id',DB.workspaceId).order('date').order('id'),
+      DB.client.from(DB.settingsTable).select('default_rate,invoice_counter').eq('workspace_id',DB.workspaceId).maybeSingle(),
+    ]);
+    DB.fail(leadsRes.error);
+    DB.fail(settingsRes.error);
+    _leads = (leadsRes.data || []).map(DB.normalizeLead);
+    if(settingsRes.data){
+      _settings = DB.normalizeSettings(settingsRes.data);
+    }else{
+      const legacySettings = DB.legacySettings();
+      const {data,error}=await DB.client.from(DB.settingsTable)
+        .insert({workspace_id:DB.workspaceId,...legacySettings})
+        .select('default_rate,invoice_counter')
+        .single();
+      DB.fail(error);
+      _settings = DB.normalizeSettings(data);
+    }
+    await DB.migrateLocalStorage();
+  },
+  leads: () => _leads.slice(),
+  settings: () => ({..._settings}),
+  createLead: async (payload) => {
+    const {data,error}=await DB.client.from(DB.leadTable)
+      .insert(DB.leadRecord({id:DB.nextLeadId(),...payload},true))
+      .select(LEAD_FIELDS)
+      .single();
+    DB.fail(error);
+    const entry=DB.normalizeLead(data);
+    _leads = [..._leads, entry].sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
+    return entry;
+  },
+  updateLead: async (id,payload) => {
+    const existing = _leads.find(e=>String(e.id)===String(id));
+    const record = DB.leadRecord({...existing,...payload});
+    delete record.workspace_id;
+    const {data,error}=await DB.client.from(DB.leadTable)
+      .update(record)
+      .eq('workspace_id',DB.workspaceId)
+      .eq('id',id)
+      .select(LEAD_FIELDS)
+      .single();
+    DB.fail(error);
+    const entry=DB.normalizeLead(data);
+    _leads = _leads.map(e=>String(e.id)===String(id)?entry:e);
+    return entry;
+  },
+  deleteLead: async (id) => {
+    const {error}=await DB.client.from(DB.leadTable)
+      .delete()
+      .eq('workspace_id',DB.workspaceId)
+      .eq('id',id);
+    DB.fail(error);
+    _leads = _leads.filter(e=>String(e.id)!==String(id));
+  },
+  updateClient: async (oldName,newName,newEmail) => {
+    const client=String(newName||'').trim();
+    const email=String(newEmail||'').trim();
+    if(!oldName || !client) throw new Error('Select a client and enter a name.');
+    const {data,error}=await DB.client.from(DB.leadTable)
+      .update({client,email})
+      .eq('workspace_id',DB.workspaceId)
+      .eq('client',oldName)
+      .select(LEAD_FIELDS);
+    DB.fail(error);
+    const updated=(data||[]).map(DB.normalizeLead);
+    const byId=new Map(updated.map(e=>[String(e.id),e]));
+    _leads=_leads.map(e=>byId.get(String(e.id))||e);
+    return {updated:updated.length,client,email};
+  },
+  clearLeads: async () => {
+    const {error}=await DB.client.from(DB.leadTable)
+      .delete()
+      .eq('workspace_id',DB.workspaceId);
+    DB.fail(error);
+    _leads = [];
+  },
+  saveSettings: async (payload) => {
+    const record = {
+      workspace_id:DB.workspaceId,
+      default_rate:parseFloat(payload.default_rate ?? _settings.default_rate),
+      invoice_counter:parseInt(payload.invoice_counter ?? _settings.invoice_counter),
+    };
+    const {data,error}=await DB.client.from(DB.settingsTable)
+      .upsert(record,{onConflict:'workspace_id'})
+      .select('default_rate,invoice_counter')
+      .single();
+    DB.fail(error);
+    _settings = DB.normalizeSettings(data);
+    return _settings;
+  },
+  bulkRate: async (weekStart,rate) => {
+    const start = weekStart;
+    const endD = new Date(weekStart+'T12:00:00'); endD.setDate(endD.getDate()+6);
+    const end = localDate(endD);
+    const {data,error}=await DB.client.from(DB.leadTable)
+      .update({rate:parseFloat(rate)})
+      .eq('workspace_id',DB.workspaceId)
+      .gte('date',start)
+      .lte('date',end)
+      .select(LEAD_FIELDS);
+    DB.fail(error);
+    const updated=(data||[]).map(DB.normalizeLead);
+    const byId=new Map(updated.map(e=>[String(e.id),e]));
+    _leads=_leads.map(e=>byId.get(String(e.id))||e);
+    return {updated:updated.length,rate:parseFloat(rate)};
+  },
+  importLeads: async (leads) => {
+    const ids=new Set(_leads.map(x=>String(x.id)));
+    const records=leads.filter(x=>!ids.has(String(x.id))).map(x=>DB.leadRecord(x,true));
+    if(!records.length) return {imported:0};
+    const {data,error}=await DB.client.from(DB.leadTable)
+      .insert(records)
+      .select(LEAD_FIELDS);
+    DB.fail(error);
+    const imported=(data||[]).map(DB.normalizeLead);
+    _leads=[..._leads,...imported].sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
+    return {imported:imported.length};
+  },
+  migrateLocalStorage: async () => {
+    const raw = localStorage.getItem('jawnix_leads');
+    if(!raw || _leads.length) return;
+    try{
+      const legacy = JSON.parse(raw);
+      if(Array.isArray(legacy) && legacy.length){
+        await DB.importLeads(legacy);
+        localStorage.setItem('jawnix_leads_migrated','true');
+      }
+    }catch(_err){}
+  },
+  legacySettings: () => {
+    try{
+      const raw = localStorage.getItem('jawnix_settings');
+      if(!raw) return {};
+      const settings = JSON.parse(raw);
+      const record = {};
+      const defaultRate = parseFloat(settings.default_rate);
+      const invoiceCounter = parseInt(settings.invoice_counter);
+      if(defaultRate > 0) record.default_rate = defaultRate;
+      if(invoiceCounter > 0) record.invoice_counter = invoiceCounter;
+      return record;
+    }catch(_err){
+      return {};
+    }
+  },
 };
 
 // ── Data ops ──────────────────────────────────────────────────────────────────
-function logEntry(date, client, email, leads, rate){
-  const data = S.leads();
-  const entry = { id:Date.now(), date, client, email,
-    leads:parseInt(leads), rate:parseFloat(rate),
-    amount: Math.round(parseInt(leads)*parseFloat(rate)*100)/100 };
-  data.push(entry); S.saveLeads(data); return entry;
+async function logEntry(date, client, email, leads, rate){
+  return DB.createLead({date,client,email,leads,rate});
 }
 
 function viewDaily(date){
-  const entries = S.leads().filter(e => e.date === date);
+  const entries = DB.leads().filter(e => e.date === date);
   return { date, entries,
     total_leads:  entries.reduce((s,e)=>s+e.leads,0),
     total_amount: Math.round(entries.reduce((s,e)=>s+e.amount,0)*100)/100 };
@@ -266,7 +482,7 @@ function viewDaily(date){
 function viewWeekly(weekStart){
   const start = new Date(weekStart+'T12:00:00');
   const end   = new Date(weekStart+'T12:00:00'); end.setDate(end.getDate()+6);
-  const entries = S.leads().filter(e=>{const d=new Date(e.date+'T12:00:00');return d>=start&&d<=end;});
+  const entries = DB.leads().filter(e=>{const d=new Date(e.date+'T12:00:00');return d>=start&&d<=end;});
   const map = {};
   entries.forEach(e=>{
     if(!map[e.client]) map[e.client]={client:e.client,email:e.email||'',days:[],total_leads:0,total_amount:0,rate:e.rate};
@@ -286,26 +502,32 @@ function viewWeekly(weekStart){
 
 function getClients(){
   const seen={};
-  S.leads().forEach(e=>{if(!seen[e.client])seen[e.client]=e.email||'';});
+  DB.leads().forEach(e=>{if(!seen[e.client])seen[e.client]=e.email||'';});
   return Object.entries(seen).map(([name,email])=>({name,email}));
 }
 
-function editEntry(id,leads,rate){
-  const data=S.leads(), e=data.find(e=>String(e.id)===String(id));
-  if(!e) throw new Error('Not found');
-  if(leads!=null) e.leads=parseInt(leads);
-  if(rate!=null)  e.rate=parseFloat(rate);
-  e.amount=Math.round(e.leads*e.rate*100)/100;
-  S.saveLeads(data); return e;
+function getClientSummary(){
+  const map={};
+  DB.leads().forEach(e=>{
+    if(!map[e.client]) map[e.client]={name:e.client,email:e.email||'',entries:0};
+    if(e.email) map[e.client].email=e.email;
+    map[e.client].entries++;
+  });
+  return Object.values(map).sort((a,b)=>a.name.localeCompare(b.name));
 }
 
-function deleteEntry(id){ S.saveLeads(S.leads().filter(e=>String(e.id)!==String(id))); }
+async function editEntry(id,leads,rate){
+  return DB.updateLead(id,{leads,rate});
+}
 
-function bulkRate(weekStart,rate){
-  const data=S.leads(),start=new Date(weekStart+'T12:00:00'),end=new Date(weekStart+'T12:00:00');
-  end.setDate(end.getDate()+6); let count=0;
-  data.forEach(e=>{const d=new Date(e.date+'T12:00:00');if(d>=start&&d<=end){e.rate=parseFloat(rate);e.amount=Math.round(e.leads*parseFloat(rate)*100)/100;count++;}});
-  S.saveLeads(data); return {updated:count,rate:parseFloat(rate)};
+async function deleteEntry(id){ await DB.deleteLead(id); }
+
+async function bulkRate(weekStart,rate){
+  return DB.bulkRate(weekStart,rate);
+}
+
+async function updateClientDetails(oldName,newName,newEmail){
+  return DB.updateClient(oldName,newName,newEmail);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -316,21 +538,33 @@ function fmtRate(r){ return parseFloat(r).toFixed(4); }
 function getSun(s){ const d=new Date(s+'T12:00:00'); d.setDate(d.getDate()-d.getDay()); return localDate(d); }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/'/g,'&#39;'); }
 function reloadActive(){ if(activeTab==='daily')loadDaily(); if(activeTab==='weekly')loadWeekly(); }
+function refreshViews(){
+  refreshToday(document.getElementById('log-date').value || today());
+  if(activeTab==='daily')loadDaily();
+  if(activeTab==='weekly')loadWeekly();
+}
 
 function nextInvNum(){
-  const s=S.settings(); return 'INV-'+String(parseInt(s.invoice_counter)||1).padStart(4,'0');
+  const s=DB.settings(); return 'INV-'+String(parseInt(s.invoice_counter)||1).padStart(4,'0');
 }
-function bumpInvNum(){
-  const s=S.settings(); s.invoice_counter=(parseInt(s.invoice_counter)||1)+1; S.saveSett(s);
+async function bumpInvNum(){
+  const s=DB.settings();
+  await DB.saveSettings({invoice_counter:(parseInt(s.invoice_counter)||1)+1});
   document.getElementById('set-inv-num').value=nextInvNum();
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-function init(){
+async function init(){
   const t=today();
   document.getElementById('hdr-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   ['log-date','daily-date','weekly-date','set-week'].forEach(id=>document.getElementById(id).value=t);
-  const s=S.settings();
+  try{
+    await DB.load();
+  }catch(err){
+    document.getElementById('today-sum').innerHTML=`<div class="msg-err">Database unavailable: ${esc(err.message)}</div>`;
+    return;
+  }
+  const s=DB.settings();
   defaultRate=parseFloat(s.default_rate)||0.0015;
   document.getElementById('log-rate').value=defaultRate;
   document.getElementById('set-apply-rate').value=defaultRate;
@@ -372,7 +606,7 @@ function onClient(){
   if(known&&clientMap[v]) document.getElementById('log-email').value=clientMap[v];
 }
 
-function submitLog(){
+async function submitLog(){
   const date=document.getElementById('log-date').value;
   const client=document.getElementById('log-client').value.trim();
   const email=document.getElementById('log-email').value.trim()||clientMap[client]||'';
@@ -380,12 +614,16 @@ function submitLog(){
   const rate=parseFloat(document.getElementById('log-rate').value);
   const msg=document.getElementById('log-msg');
   if(!date||!client||!leads||!rate){msg.innerHTML='<div class="msg-err">Fill in all fields.</div>';return;}
-  const entry=logEntry(date,client,email,leads,rate);
-  refreshClients();
-  document.getElementById('email-wrap').style.display='none';
-  document.getElementById('log-leads').value=''; calcAmt();
-  msg.innerHTML=`<div class="msg-ok"><strong>${leads.toLocaleString()} leads logged</strong> → $${entry.amount.toFixed(2)} for ${client}</div>`;
-  refreshToday(date);
+  try{
+    const entry=await logEntry(date,client,email,leads,rate);
+    refreshClients();
+    document.getElementById('email-wrap').style.display='none';
+    document.getElementById('log-leads').value=''; calcAmt();
+    msg.innerHTML=`<div class="msg-ok"><strong>${leads.toLocaleString()} leads logged</strong> → $${entry.amount.toFixed(2)} for ${esc(client)}</div>`;
+    refreshToday(date);
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Save failed: ${esc(err.message)}</div>`;
+  }
 }
 
 function refreshToday(date){
@@ -400,7 +638,7 @@ function refreshToday(date){
     <div class="stat"><div class="stat-lbl">Total due</div><div class="stat-val">$${data.total_amount.toFixed(2)}</div></div>
   </div>
   <table><thead><tr><th>Client</th><th class="td-r">Leads</th><th class="td-r">Amount</th></tr></thead>
-  <tbody>${Object.entries(by).map(([n,v])=>`<tr><td>${n}</td><td class="td-r">${v.leads.toLocaleString()}</td><td class="td-r">$${v.amount.toFixed(2)}</td></tr>`).join('')}</tbody>
+  <tbody>${Object.entries(by).map(([n,v])=>`<tr><td>${esc(n)}</td><td class="td-r">${v.leads.toLocaleString()}</td><td class="td-r">$${v.amount.toFixed(2)}</td></tr>`).join('')}</tbody>
   </table>`;
 }
 
@@ -452,14 +690,27 @@ function startEdit(id,leads,rate,client){
   calc();
 }
 
-function saveEdit(id){
+async function saveEdit(id){
   const leads=parseFloat(document.getElementById('el-'+id)?.value);
   const rate=parseFloat(document.getElementById('er-'+id)?.value);
   if(!leads||!rate)return;
-  editEntry(id,leads,rate); reloadActive();
+  try{
+    await editEntry(id,leads,rate);
+    reloadActive();
+  }catch(err){
+    alert('Save failed: '+err.message);
+  }
 }
 
-function deleteRow(id){ if(!confirm('Delete this entry?'))return; deleteEntry(id); reloadActive(); }
+async function deleteRow(id){
+  if(!confirm('Delete this entry?'))return;
+  try{
+    await deleteEntry(id);
+    reloadActive();
+  }catch(err){
+    alert('Delete failed: '+err.message);
+  }
+}
 
 // ── Daily tab ─────────────────────────────────────────────────────────────────
 function loadDaily(){
@@ -568,11 +819,11 @@ function rebuildInvJSON(){
   document.getElementById('m-json').textContent = 'GENERATE_INVOICE:'+JSON.stringify(payload);
 }
 
-function copyInvJSON(){
+async function copyInvJSON(){
   const text = document.getElementById('m-json').textContent;
   if(!text.startsWith('GENERATE_INVOICE:')) return;
-  navigator.clipboard.writeText(text).then(()=>{
-    bumpInvNum();
+  navigator.clipboard.writeText(text).then(async ()=>{
+    await bumpInvNum();
     const b=document.getElementById('m-copy-badge');
     b.style.display='inline-block';
     // update displayed next # in modal for subsequent use
@@ -588,75 +839,139 @@ function closeInvModal(e){
 
 // ── Settings tab ──────────────────────────────────────────────────────────────
 function loadSettingsTab(){
-  const s=S.settings();
+  const s=DB.settings();
   defaultRate=parseFloat(s.default_rate)||0.0015;
   document.getElementById('set-current-rate').textContent='$'+fmtRate(defaultRate)+' / lead';
   document.getElementById('set-rate').value=defaultRate;
   document.getElementById('set-inv-num').value=nextInvNum();
+  refreshClientEditor();
 }
 
-function saveSettings(){
+function refreshClientEditor(selectedName){
+  const select=document.getElementById('set-client-select');
+  if(!select)return;
+  const clients=getClientSummary();
+  if(!clients.length){
+    select.innerHTML='<option value="">No clients yet</option>';
+    document.getElementById('set-client-name').value='';
+    document.getElementById('set-client-email').value='';
+    document.getElementById('set-client-name').disabled=true;
+    document.getElementById('set-client-email').disabled=true;
+    return;
+  }
+  document.getElementById('set-client-name').disabled=false;
+  document.getElementById('set-client-email').disabled=false;
+  select.innerHTML=clients.map(c=>`<option value="${esc(c.name)}">${esc(c.name)} (${c.entries})</option>`).join('');
+  if(selectedName && clients.some(c=>c.name===selectedName)) select.value=selectedName;
+  loadClientEditor();
+}
+
+function loadClientEditor(){
+  const name=document.getElementById('set-client-select')?.value || '';
+  const client=getClientSummary().find(c=>c.name===name);
+  document.getElementById('set-client-name').value=client?.name || '';
+  document.getElementById('set-client-email').value=client?.email || '';
+}
+
+async function saveClientDetails(){
+  const select=document.getElementById('set-client-select');
+  const msg=document.getElementById('set-client-msg');
+  const oldName=select.value;
+  const newName=document.getElementById('set-client-name').value.trim();
+  const newEmail=document.getElementById('set-client-email').value.trim();
+  if(!oldName){msg.innerHTML='<div class="msg-err">Select a client.</div>';return;}
+  if(!newName){msg.innerHTML='<div class="msg-err">Enter a client name.</div>';return;}
+  try{
+    const result=await updateClientDetails(oldName,newName,newEmail);
+    refreshClients();
+    refreshClientEditor(result.client);
+    refreshViews();
+    msg.innerHTML=`<div class="msg-ok">Updated ${result.updated} entries for ${esc(result.client)}.</div>`;
+    setTimeout(()=>msg.innerHTML='',3000);
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Save failed: ${esc(err.message)}</div>`;
+  }
+}
+
+async function saveSettings(){
   const rate=parseFloat(document.getElementById('set-rate').value);
   const msg=document.getElementById('set-rate-msg');
   if(!rate){msg.innerHTML='<div class="msg-err">Enter a valid rate.</div>';return;}
-  const s=S.settings(); s.default_rate=rate; S.saveSett(s);
-  defaultRate=rate;
-  document.getElementById('set-current-rate').textContent='$'+fmtRate(rate)+' / lead';
-  document.getElementById('log-rate').value=rate;
-  document.getElementById('set-apply-rate').value=rate;
-  msg.innerHTML=`<div class="msg-ok">Saved — new entries will use $${fmtRate(rate)}/lead.</div>`;
-  setTimeout(()=>msg.innerHTML='',3000);
+  try{
+    await DB.saveSettings({default_rate:rate});
+    defaultRate=rate;
+    document.getElementById('set-current-rate').textContent='$'+fmtRate(rate)+' / lead';
+    document.getElementById('log-rate').value=rate;
+    document.getElementById('set-apply-rate').value=rate;
+    msg.innerHTML=`<div class="msg-ok">Saved — new entries will use $${fmtRate(rate)}/lead.</div>`;
+    setTimeout(()=>msg.innerHTML='',3000);
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Save failed: ${esc(err.message)}</div>`;
+  }
 }
 
-function saveInvNum(){
+async function saveInvNum(){
   const val=document.getElementById('set-inv-num').value.trim();
   const msg=document.getElementById('set-inv-msg');
   const match=val.match(/(\d+)$/);
   if(!match){msg.innerHTML='<div class="msg-err">Use format INV-0003.</div>';return;}
-  const s=S.settings(); s.invoice_counter=parseInt(match[1]); S.saveSett(s);
-  msg.innerHTML='<div class="msg-ok">Invoice number saved.</div>';
-  setTimeout(()=>msg.innerHTML='',2500);
+  try{
+    await DB.saveSettings({invoice_counter:parseInt(match[1])});
+    msg.innerHTML='<div class="msg-ok">Invoice number saved.</div>';
+    setTimeout(()=>msg.innerHTML='',2500);
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Save failed: ${esc(err.message)}</div>`;
+  }
 }
 
-function applyWeekRate(){
+async function applyWeekRate(){
   const date=document.getElementById('set-week').value;
   const rate=parseFloat(document.getElementById('set-apply-rate').value);
   const msg=document.getElementById('set-week-msg');
   if(!date||!rate){msg.innerHTML='<div class="msg-err">Select a date and enter a rate.</div>';return;}
-  const r=bulkRate(getSun(date),rate);
-  msg.innerHTML=`<div class="msg-ok">Updated ${r.updated} entries to $${fmtRate(r.rate)}/lead.</div>`;
-  reloadActive();
+  try{
+    const r=await bulkRate(getSun(date),rate);
+    msg.innerHTML=`<div class="msg-ok">Updated ${r.updated} entries to $${fmtRate(r.rate)}/lead.</div>`;
+    reloadActive();
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Update failed: ${esc(err.message)}</div>`;
+  }
 }
 
 function importJSON(input){
   const file=input.files[0]; if(!file)return;
   const reader=new FileReader();
-  reader.onload=e=>{
+  reader.onload=async e=>{
     const msg=document.getElementById('set-data-msg');
     try{
       const incoming=JSON.parse(e.target.result);
       if(!Array.isArray(incoming))throw new Error('Expected a JSON array');
-      const existing=S.leads(), ids=new Set(existing.map(x=>String(x.id)));
-      const fresh=incoming.filter(x=>!ids.has(String(x.id)));
-      S.saveLeads([...existing,...fresh]);
+      const result=await DB.importLeads(incoming);
       refreshClients();
-      msg.innerHTML=`<div class="msg-ok">Imported ${fresh.length} new entries.</div>`;
+      refreshClientEditor();
+      msg.innerHTML=`<div class="msg-ok">Imported ${result.imported} new entries.</div>`;
       input.value='';
-    }catch(err){msg.innerHTML=`<div class="msg-err">Import failed: ${err.message}</div>`;}
+    }catch(err){msg.innerHTML=`<div class="msg-err">Import failed: ${esc(err.message)}</div>`;}
   };
   reader.readAsText(file);
 }
 
 function exportJSON(){
-  const blob=new Blob([JSON.stringify(S.leads(),null,2)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify(DB.leads(),null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='leads_log.json'; a.click();
 }
 
-function clearData(){
+async function clearData(){
   if(!confirm('Delete ALL lead entries? This cannot be undone.'))return;
-  S.saveLeads([]); refreshClients();
-  document.getElementById('set-data-msg').innerHTML='<div class="msg-ok">All entries cleared.</div>';
-  reloadActive();
+  try{
+    await DB.clearLeads();
+    refreshClients();
+    refreshClientEditor();
+    document.getElementById('set-data-msg').innerHTML='<div class="msg-ok">All entries cleared.</div>';
+    reloadActive();
+  }catch(err){
+    document.getElementById('set-data-msg').innerHTML=`<div class="msg-err">Clear failed: ${esc(err.message)}</div>`;
+  }
 }
 
 init();
