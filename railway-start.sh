@@ -52,15 +52,14 @@ cat > "$APP_DIR/Caddyfile.generated" <<EOF
 	handle /healthz {
 		respond "ok" 200
 	}
+
+	handle {
 EOF
 
 if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
   cat >> "$APP_DIR/Caddyfile.generated" <<EOF
 
-	@protected {
-		not path /healthz
-	}
-	basic_auth @protected {
+	basic_auth {
 		$JAWNIX_BASIC_AUTH_USER $JAWNIX_BASIC_AUTH_HASH
 	}
 EOF
@@ -70,6 +69,7 @@ cat >> "$APP_DIR/Caddyfile.generated" <<'EOF'
 
 	try_files {path} /index.html
 	file_server
+	}
 
 	header {
 		X-Content-Type-Options nosniff
