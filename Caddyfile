@@ -20,7 +20,7 @@
 	}
 
 	handle /api/* {
-		basic_auth {
+		basicauth {
 			{$JAWNIX_BASIC_AUTH_USER} {$JAWNIX_BASIC_AUTH_HASH}
 		}
 
@@ -28,7 +28,7 @@
 	}
 
 	handle {
-		basic_auth {
+		basicauth {
 			{$JAWNIX_BASIC_AUTH_USER} {$JAWNIX_BASIC_AUTH_HASH}
 		}
 
