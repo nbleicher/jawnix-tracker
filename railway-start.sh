@@ -81,7 +81,7 @@ EOF
 if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
   cat >> "$APP_DIR/Caddyfile.generated" <<EOF
 
-	basic_auth {
+	basicauth {
 		$JAWNIX_BASIC_AUTH_USER $JAWNIX_BASIC_AUTH_HASH
 	}
 EOF
@@ -98,7 +98,7 @@ EOF
 if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
   cat >> "$APP_DIR/Caddyfile.generated" <<EOF
 
-	basic_auth {
+	basicauth {
 		$JAWNIX_BASIC_AUTH_USER $JAWNIX_BASIC_AUTH_HASH
 	}
 EOF
