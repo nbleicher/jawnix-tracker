@@ -185,7 +185,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
     <div class="settings-box">
       <div class="sec-lbl">Invoice voids</div>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Void or restore a client invoice for a selected week without deleting lead entries.</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Void generated invoice records for a selected client and week without excluding the client from future weekly invoices.</p>
       <div class="row2" style="max-width:520px">
         <div class="field" style="margin:0">
           <label>Client</label>
@@ -748,7 +748,6 @@ function viewWeekly(weekStart){
   });
   Object.values(map).forEach(c=>{
     c.total_amount=Math.round(c.total_amount*100)/100;
-    c.voided=DB.isInvoiceVoided(c.client,weekStart);
   });
   const endD=new Date(weekStart+'T12:00:00'); endD.setDate(endD.getDate()+6);
   const week_label=start.toLocaleDateString('en-US',{month:'short',day:'numeric'})+'–'+
@@ -1242,15 +1241,22 @@ function loadInvoiceVoidEditor(){
   const btn=document.getElementById('set-void-btn');
   const status=document.getElementById('set-void-status');
   const list=document.getElementById('set-void-list');
-  const voided=client ? DB.isInvoiceVoided(client,weekStart) : false;
   const records=client ? invoiceRecordsFor(client,weekStart) : [];
-  btn.textContent=voided ? 'Restore invoice' : 'Void invoice';
-  btn.classList.toggle('btn-danger',!voided);
-  btn.classList.toggle('btn-primary',voided);
+  const activeRecords=records.filter(r=>!r.voided_at);
+  btn.textContent=activeRecords.length > 1 ? `Void ${activeRecords.length} invoices` : 'Void invoice';
+  btn.disabled=!client || !activeRecords.length;
+  btn.classList.toggle('btn-danger',!!activeRecords.length);
+  btn.classList.toggle('btn-primary',!activeRecords.length);
   const sessions=activeCheckoutSessionIds(client,weekStart).length;
-  status.textContent=client
-    ? `${fmtD(weekStart)} week for ${client}: ${voided ? 'voided' : 'active'}${sessions ? `, ${sessions} Stripe session${sessions===1?'':'s'} available to expire` : ''}.`
-    : 'Select a client.';
+  if(client){
+    const recordLabel=records.length===1?'record':'records';
+    const activeLabel=activeRecords.length===1?'active invoice':'active invoices';
+    status.textContent=records.length
+      ? `${fmtD(weekStart)} week for ${client}: ${activeRecords.length} ${activeLabel} across ${records.length} generated ${recordLabel}${sessions ? `, ${sessions} Stripe session${sessions===1?'':'s'} available to expire` : ''}.`
+      : `${fmtD(weekStart)} week for ${client}: no generated invoice records yet.`;
+  }else{
+    status.textContent='Select a client.';
+  }
   if(!records.length){
     list.innerHTML='<div class="msg-info">No generated invoice records for this client/week yet.</div>';
     return;
@@ -1283,18 +1289,18 @@ async function toggleInvoiceVoid(){
   const msg=document.getElementById('set-void-msg');
   if(!client){msg.innerHTML='<div class="msg-err">Select a client.</div>';return;}
   try{
-    if(DB.isInvoiceVoided(client,weekStart)){
-      await DB.restoreInvoice(client,weekStart);
-      msg.innerHTML='<div class="msg-ok">Invoice restored. Previously expired Stripe links cannot be reopened; generate a new invoice if needed.</div>';
-    }else{
-      const sessions=activeCheckoutSessionIds(client,weekStart);
-      if(sessions.length){
-        await expireStripeSessions(sessions);
-      }
-      await DB.voidInvoice(client,weekStart);
-      await DB.markInvoiceRecordsVoided(client,weekStart);
-      msg.innerHTML=`<div class="msg-ok">Invoice voided${sessions.length ? ` and ${sessions.length} Stripe session${sessions.length===1?'':'s'} expired` : ''}.</div>`;
+    const activeRecords=invoiceRecordsFor(client,weekStart).filter(r=>!r.voided_at);
+    if(!activeRecords.length){
+      msg.innerHTML='<div class="msg-info">No active generated invoice records to void.</div>';
+      loadInvoiceVoidEditor();
+      return;
     }
+    const sessions=activeCheckoutSessionIds(client,weekStart);
+    if(sessions.length){
+      await expireStripeSessions(sessions);
+    }
+    const result=await DB.markInvoiceRecordsVoided(client,weekStart);
+    msg.innerHTML=`<div class="msg-ok">${result.updated || activeRecords.length} invoice record${(result.updated || activeRecords.length)===1?'':'s'} voided${sessions.length ? ` and ${sessions.length} Stripe session${sessions.length===1?'':'s'} expired` : ''}. The client remains available for a regenerated weekly invoice.</div>`;
     loadInvoiceVoidEditor();
     refreshViews();
   }catch(err){
