@@ -363,6 +363,56 @@ def row_cells(row):
     return row.findall(W + "tc")
 
 
+def width_attr(element):
+    return int(float(element.get(W + "w", "0") or 0))
+
+
+def cell_properties(cell):
+    props = cell.find(W + "tcPr")
+    if props is None:
+        props = ET.Element(W + "tcPr")
+        cell.insert(0, props)
+    return props
+
+
+def set_cell_width(cell, width_twips):
+    props = cell_properties(cell)
+    width = props.find(W + "tcW")
+    if width is None:
+        width = ET.Element(W + "tcW")
+        props.insert(0, width)
+    width.set(W + "w", str(width_twips))
+    width.set(W + "type", "dxa")
+
+
+def set_cell_no_wrap(cell):
+    props = cell_properties(cell)
+    if props.find(W + "noWrap") is None:
+        props.append(ET.Element(W + "noWrap"))
+
+
+def set_table_grid_min_width(table, column_idx, min_width_twips):
+    grid = table.find(W + "tblGrid")
+    if grid is None:
+        return
+
+    columns = grid.findall(W + "gridCol")
+    if column_idx >= len(columns):
+        return
+
+    current_width = width_attr(columns[column_idx])
+    if current_width >= min_width_twips:
+        return
+
+    delta = min_width_twips - current_width
+    columns[column_idx].set(W + "w", str(min_width_twips))
+
+    if column_idx > 0:
+        donor = columns[0]
+        donor_width = width_attr(donor)
+        donor.set(W + "w", str(max(0, donor_width - delta)))
+
+
 def find_table(root, header):
     for table in root.iter(W + "tbl"):
         rows = table_rows(table)
@@ -427,10 +477,13 @@ def fill_totals(root, invoice):
     if table is None:
         return
 
+    set_table_grid_min_width(table, 2, 1800)
     total = money(invoice["totalDue"])
     for row in table_rows(table):
         cells = row_cells(row)
         if len(cells) >= 3 and element_text(cells[1]) in {"Subtotal", "TOTAL DUE"}:
+            set_cell_width(cells[2], 1800)
+            set_cell_no_wrap(cells[2])
             set_element_text(cells[2], total)
 
 
