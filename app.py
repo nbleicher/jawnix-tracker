@@ -9,6 +9,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import xml.etree.ElementTree as ET
+from copy import deepcopy
 from datetime import datetime
 from html import escape as xml_escape
 from http import HTTPStatus
@@ -28,14 +30,45 @@ TEMPLATE_PATH = Path(
 INVOICE_DIR = Path(os.environ.get("JAWNIX_INVOICE_DIR", APP_DIR / "invoices"))
 MAX_BODY_BYTES = int(os.environ.get("JAWNIX_MAX_INVOICE_JSON_BYTES", "1048576"))
 STRIPE_API_URL = "https://api.stripe.com/v1/checkout/sessions"
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+XML_NS = "http://www.w3.org/XML/1998/namespace"
+W = f"{{{W_NS}}}"
+R = f"{{{R_NS}}}"
+XML = f"{{{XML_NS}}}"
+
+
+for prefix, uri in {
+    "w": W_NS,
+    "r": R_NS,
+    "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "pic": "http://schemas.openxmlformats.org/drawingml/2006/picture",
+    "w14": "http://schemas.microsoft.com/office/word/2010/wordml",
+}.items():
+    ET.register_namespace(prefix, uri)
 
 
 def money(value):
     return f"${float(value or 0):,.2f}"
 
 
+def rate_text(amount, leads):
+    if not leads:
+        return ""
+    return f"${float(amount or 0) / int(leads):,.4f}"
+
+
 def int_text(value):
     return f"{int(value or 0):,}"
+
+
+def display_invoice_date(value):
+    text = str(value or "").strip()
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").strftime("%m/%d/%Y")
+    except ValueError:
+        return text
 
 
 def safe_filename(value):
@@ -217,7 +250,202 @@ def add_payment_link_to_document(xml, url):
     return xml.replace("<w:sectPr", link + "<w:sectPr")
 
 
-def render_docx(invoice, output_path):
+def text_nodes(element):
+    return list(element.iter(W + "t"))
+
+
+def element_text(element):
+    return "".join(node.text or "" for node in text_nodes(element))
+
+
+def ensure_text_node(cell):
+    nodes = text_nodes(cell)
+    if nodes:
+        return nodes[0]
+
+    paragraph = cell.find(W + "p")
+    if paragraph is None:
+        paragraph = ET.SubElement(cell, W + "p")
+    run = paragraph.find(W + "r")
+    if run is None:
+        run = ET.SubElement(paragraph, W + "r")
+    return ET.SubElement(run, W + "t")
+
+
+def set_element_text(element, value):
+    nodes = text_nodes(element)
+    if not nodes:
+        nodes = [ensure_text_node(element)]
+
+    nodes[0].text = str(value)
+    if " " in str(value):
+        nodes[0].set(XML + "space", "preserve")
+    for node in nodes[1:]:
+        node.text = ""
+
+
+def set_prefixed_paragraph(root, prefix, value, output_prefix=None):
+    label = output_prefix or prefix
+    for paragraph in root.iter(W + "p"):
+        if element_text(paragraph).startswith(prefix):
+            nodes = text_nodes(paragraph)
+            if len(nodes) >= 2:
+                nodes[0].text = label
+                nodes[0].set(XML + "space", "preserve")
+                nodes[1].text = str(value)
+                for node in nodes[2:]:
+                    node.text = ""
+            else:
+                set_element_text(paragraph, f"{label}{value}")
+            return True
+    return False
+
+
+def set_exact_paragraph(root, old_text, new_text):
+    for paragraph in root.iter(W + "p"):
+        if element_text(paragraph) == old_text:
+            set_element_text(paragraph, new_text)
+            return True
+    return False
+
+
+def table_rows(table):
+    return table.findall(W + "tr")
+
+
+def row_cells(row):
+    return row.findall(W + "tc")
+
+
+def find_table(root, header):
+    for table in root.iter(W + "tbl"):
+        rows = table_rows(table)
+        if not rows:
+            continue
+        values = [element_text(cell) for cell in row_cells(rows[0])]
+        if values == header:
+            return table
+    return None
+
+
+def find_table_containing(root, value):
+    for table in root.iter(W + "tbl"):
+        if value in element_text(table):
+            return table
+    return None
+
+
+def set_cell_values(row, values):
+    for cell, value in zip(row_cells(row), values):
+        set_element_text(cell, value)
+
+
+def line_description(day):
+    period = " ".join(part for part in [day["day"], day["date"]] if part)
+    return f"Leads - {period}" if period else "Leads"
+
+
+def fill_line_items(root, invoice):
+    table = find_table(root, ["#", "Description", "Qty", "Rate", "Amount"])
+    if table is None:
+        return
+
+    rows = table_rows(table)
+    if len(rows) < 2:
+        return
+
+    body_rows = rows[1:]
+    required_rows = max(5, len(invoice["days"]))
+    while len(body_rows) < required_rows:
+        new_row = deepcopy(body_rows[-1])
+        table.append(new_row)
+        body_rows.append(new_row)
+
+    for idx, row in enumerate(body_rows, start=1):
+        if idx <= len(invoice["days"]):
+            day = invoice["days"][idx - 1]
+            values = [
+                str(idx),
+                line_description(day),
+                int_text(day["leads"]),
+                rate_text(day["amount"], day["leads"]),
+                money(day["amount"]),
+            ]
+        else:
+            values = ["", "", "", "", ""]
+        set_cell_values(row, values)
+
+
+def fill_totals(root, invoice):
+    table = find_table_containing(root, "TOTAL DUE")
+    if table is None:
+        return
+
+    total = money(invoice["totalDue"])
+    for row in table_rows(table):
+        cells = row_cells(row)
+        if len(cells) >= 3 and element_text(cells[1]) in {"Subtotal", "TOTAL DUE"}:
+            set_element_text(cells[2], total)
+
+
+def payment_url_text(url):
+    return "PAY NOW" if url else "Payment link unavailable"
+
+
+def add_run_property(parent, tag, attrs=None):
+    return ET.SubElement(parent, W + tag, attrs or {})
+
+
+def fill_payment_link(root, url):
+    for paragraph in root.iter(W + "p"):
+        if element_text(paragraph).startswith("Pay Online:"):
+            children = list(paragraph)
+            for child in children:
+                if child.tag != W + "pPr":
+                    paragraph.remove(child)
+
+            label_run = ET.SubElement(paragraph, W + "r")
+            label_text = ET.SubElement(label_run, W + "t")
+            label_text.set(XML + "space", "preserve")
+            label_text.text = "Pay Online: "
+
+            if url:
+                hyperlink = ET.SubElement(paragraph, W + "hyperlink", {R + "id": "rIdStripePayment"})
+                run = ET.SubElement(hyperlink, W + "r")
+                run_props = ET.SubElement(run, W + "rPr")
+                add_run_property(run_props, "b")
+                add_run_property(run_props, "color", {W + "val": "FFFFFF"})
+                add_run_property(run_props, "sz", {W + "val": "18"})
+                add_run_property(run_props, "shd", {W + "val": "clear", W + "fill": "1F4E79"})
+                text = ET.SubElement(run, W + "t")
+                text.set(XML + "space", "preserve")
+                text.text = f"  {payment_url_text(url)}  "
+            else:
+                run = ET.SubElement(paragraph, W + "r")
+                text = ET.SubElement(run, W + "t")
+                text.text = payment_url_text(url)
+            return
+
+
+def render_attached_template_document(content, invoice):
+    root = ET.fromstring(content)
+    set_prefixed_paragraph(root, "Invoice #: ", invoice["invoiceNum"])
+    set_prefixed_paragraph(root, "Date: ", display_invoice_date(invoice["invoiceDate"]))
+    set_exact_paragraph(root, "[Client / Lead Name]", invoice["clientName"])
+    set_exact_paragraph(root, "[Email]", invoice["clientEmail"])
+    set_prefixed_paragraph(
+        root,
+        "PO Number: ",
+        invoice["weekRange"],
+        output_prefix="Billing Period: ",
+    )
+    fill_line_items(root, invoice)
+    fill_totals(root, invoice)
+    fill_payment_link(root, invoice["paymentUrl"])
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def render_legacy_template_document(content, invoice):
     replacements = {
         "{{invoiceNum}}": invoice["invoiceNum"],
         "{{invoiceDate}}": invoice["invoiceDate"],
@@ -227,19 +455,25 @@ def render_docx(invoice, output_path):
         "{{totalLeads}}": int_text(invoice["totalLeads"]),
         "{{totalDue}}": money(invoice["totalDue"]),
     }
+    text = content.decode("utf-8")
+    for placeholder, value in replacements.items():
+        text = text.replace(placeholder, xml_escape(value))
+    text = text.replace("<!-- LINE_ITEMS_ROWS -->", invoice_rows(invoice))
+    text = add_payment_link_to_document(text, invoice["paymentUrl"])
+    return text.encode("utf-8")
 
+
+def render_docx(invoice, output_path):
     with zipfile.ZipFile(TEMPLATE_PATH, "r") as src, zipfile.ZipFile(
         output_path, "w", zipfile.ZIP_DEFLATED
     ) as dst:
         for item in src.infolist():
             content = src.read(item.filename)
             if item.filename == "word/document.xml":
-                text = content.decode("utf-8")
-                for placeholder, value in replacements.items():
-                    text = text.replace(placeholder, xml_escape(value))
-                text = text.replace("<!-- LINE_ITEMS_ROWS -->", invoice_rows(invoice))
-                text = add_payment_link_to_document(text, invoice["paymentUrl"])
-                content = text.encode("utf-8")
+                if b"{{invoiceNum}}" in content:
+                    content = render_legacy_template_document(content, invoice)
+                else:
+                    content = render_attached_template_document(content, invoice)
             elif item.filename == "word/_rels/document.xml.rels":
                 text = content.decode("utf-8")
                 content = add_payment_relationship(text, invoice["paymentUrl"]).encode("utf-8")
