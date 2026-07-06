@@ -30,6 +30,8 @@ JAWNIX_SUPABASE_ANON_KEY=YOUR-SUPABASE-ANON-OR-PUBLISHABLE-KEY
 JAWNIX_WORKSPACE_ID=default
 JAWNIX_LEADS_TABLE=jawnix_leads
 JAWNIX_SETTINGS_TABLE=jawnix_settings
+JAWNIX_INVOICE_VOIDS_TABLE=jawnix_invoice_voids
+JAWNIX_INVOICE_RECORDS_TABLE=jawnix_invoice_records
 JAWNIX_API_PORT=8001
 JAWNIX_INVOICE_DIR=/app/invoices
 JAWNIX_CORS_ORIGIN=*
@@ -53,7 +55,7 @@ Only set `JAWNIX_ALLOW_UNPROTECTED=true` for a deliberately public deployment af
 
 ## Invoice PDF generation
 
-The app includes `POST /api/generate-invoice`. It accepts the invoice JSON produced by the weekly invoice modal, creates a Stripe Checkout Session when `STRIPE_SECRET_KEY` is set, renders `templates/Jawnix_Invoice_Template.docx` with Python `zipfile`, converts it with `libreoffice`, stores the DOCX and PDF in `JAWNIX_INVOICE_DIR`, and returns the PDF as a download. The Stripe Checkout URL is embedded in the PDF and returned in the `X-Stripe-Checkout-Url` response header for the frontend's "Pay on Stripe" button.
+The app includes `POST /api/generate-invoice`. It accepts the invoice JSON produced by the weekly invoice modal, creates a Stripe Checkout Session when `STRIPE_SECRET_KEY` is set, renders `templates/Jawnix_Invoice_Template.docx` with Python `zipfile`, converts it with `libreoffice`, stores the DOCX and PDF in `JAWNIX_INVOICE_DIR`, and returns the PDF as a download. The Stripe Checkout URL and Session ID are returned in response headers so the frontend can save invoice records and expire matching Stripe Checkout Sessions when an invoice is voided from Settings.
 
 The Docker image installs LibreOffice with apt. If generated invoices need to survive container restarts, mount persistent storage at `JAWNIX_INVOICE_DIR`.
 
@@ -68,6 +70,8 @@ railway variable set \
   JAWNIX_WORKSPACE_ID=default \
   JAWNIX_LEADS_TABLE=jawnix_leads \
   JAWNIX_SETTINGS_TABLE=jawnix_settings \
+  JAWNIX_INVOICE_VOIDS_TABLE=jawnix_invoice_voids \
+  JAWNIX_INVOICE_RECORDS_TABLE=jawnix_invoice_records \
   JAWNIX_API_PORT=8001 \
   JAWNIX_INVOICE_DIR=/app/invoices \
   JAWNIX_CORS_ORIGIN='*' \

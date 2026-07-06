@@ -4,4 +4,6 @@ window.JAWNIX_CONFIG = {
   workspaceId: 'default',
   leadsTable: 'jawnix_leads',
   settingsTable: 'jawnix_settings',
+  invoiceVoidsTable: 'jawnix_invoice_voids',
+  invoiceRecordsTable: 'jawnix_invoice_records',
 };

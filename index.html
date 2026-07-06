@@ -6,13 +6,10 @@
 <title>Jawnix — Lead Tracker</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="./config.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{--blue:#185FA5;--blue-lt:#dbeafe;--navy:#1f4e79;--surface:#f8fafc;--border:#e2e8f0;--text:#0f172a;--muted:#64748b;--r:8px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.45;color:var(--text);background:#fff;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:var(--text);background:#fff;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 button,input{font:inherit}
 .header{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
 .logo{font-size:17px;font-weight:800;letter-spacing:.04em}.logo span{color:#60a5fa}
@@ -41,6 +38,9 @@ input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,9
 .btn-pay{background:#0f172a;color:#fff;border-color:#0f172a;box-shadow:0 1px 2px rgba(15,23,42,.12)}
 .btn-pay:hover{background:#1e293b;border-color:#1e293b}
 .btn-pay::before{content:"$";display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.16);font-size:11px;font-weight:800}
+.btn-pay-clean{border-radius:999px;padding:0 18px;background:#0f172a;border-color:#0f172a;color:#fff;box-shadow:none}
+.btn-pay-clean:hover{background:#334155;border-color:#334155}
+.btn-pay-clean::before{display:none}
 .stat-bar{display:flex;gap:24px;background:var(--blue-lt);border-radius:var(--r);padding:12px 16px;margin-bottom:18px;flex-wrap:wrap}
 .stat-lbl{font-size:10px;color:var(--blue);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 .stat-val{font-size:20px;font-weight:700;color:var(--navy);line-height:1.3}
@@ -70,6 +70,8 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 .copy-row{display:flex;gap:8px;align-items:center;margin-top:8px}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
 .badge-ok{background:#dcfce7;color:#15803d}
+.badge-void{background:#f1f5f9;color:#475569}
+.muted-row td{color:var(--muted)}
 .settings-box{border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px}
 .rate-big{font-size:28px;font-weight:700;color:var(--navy);margin:6px 0 2px}
 .rate-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700}
@@ -137,8 +139,14 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <!-- WEEKLY -->
   <div class="pane" id="pane-weekly">
-    <div class="row2" style="margin-bottom:18px">
-      <div class="field" style="margin:0"><label>Any date in the week</label><input type="date" id="weekly-date" onchange="loadWeekly()"></div>
+    <input type="hidden" id="weekly-date">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px">
+      <button class="btn" onclick="changeWeek(-1)">Previous week</button>
+      <div style="text-align:center;min-width:0">
+        <div class="sec-lbl" style="margin-bottom:2px">Weekly summary</div>
+        <div id="weekly-range" style="font-size:18px;font-weight:700;color:var(--navy)">—</div>
+      </div>
+      <button class="btn" onclick="changeWeek(1)">Next week</button>
     </div>
     <div id="weekly-out"><div class="msg-info">Loading…</div></div>
   </div>
@@ -173,6 +181,25 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
         </div>
       </div>
       <div id="set-inv-msg"></div>
+    </div>
+
+    <div class="settings-box">
+      <div class="sec-lbl">Invoice voids</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Void or restore a client invoice for a selected week without deleting lead entries.</p>
+      <div class="row2" style="max-width:520px">
+        <div class="field" style="margin:0">
+          <label>Client</label>
+          <select id="set-void-client" onchange="loadInvoiceVoidEditor()" style="height:36px;border:1px solid var(--border);border-radius:var(--r);padding:0 10px;font-size:14px;color:var(--text);background:#fff;width:100%"></select>
+        </div>
+        <div class="field" style="margin:0">
+          <label>Any date in the week</label>
+          <input type="date" id="set-void-week" onchange="loadInvoiceVoidEditor()">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="set-void-btn" style="margin-top:12px" onclick="toggleInvoiceVoid()">Void invoice</button>
+      <div id="set-void-status" style="font-size:13px;color:var(--muted);margin-top:10px"></div>
+      <div id="set-void-msg"></div>
+      <div id="set-void-list" style="margin-top:14px"></div>
     </div>
 
     <div class="settings-box">
@@ -259,7 +286,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     <div class="json-out" id="m-json"></div>
     <div class="copy-row">
       <button class="btn btn-primary" id="m-generate-btn" onclick="generateInvoicePDF()">Download PDF</button>
-      <a class="btn btn-pay" id="m-pay-link" href="#" target="_blank" rel="noopener" style="display:none">Pay on Stripe</a>
+      <a class="btn btn-pay btn-pay-clean" id="m-pay-link" href="#" target="_blank" rel="noopener" style="display:none">Pay on Stripe</a>
       <span id="m-copy-badge" style="display:none" class="badge badge-ok">PDF downloaded</span>
     </div>
   </div>
@@ -271,14 +298,22 @@ let activeTab = 'log', defaultRate = 0.0015, clientMap = {};
 let _modalData = null;
 let _leads = [];
 let _settings = {default_rate:0.0015,invoice_counter:1};
+let _invoiceVoids = [];
+let _invoiceRecords = [];
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 const LEAD_FIELDS = 'id,date,client,email,leads,rate,amount';
+const INVOICE_VOID_FIELDS = 'week_start,client,voided_at';
+const INVOICE_RECORD_FIELDS = 'week_start,client,invoice_num,checkout_session_id,checkout_url,pdf_filename,total_due,generated_at,voided_at';
 const DB = {
   client:null,
   workspaceId:'default',
   leadTable:'jawnix_leads',
   settingsTable:'jawnix_settings',
+  invoiceVoidsTable:'jawnix_invoice_voids',
+  invoiceRecordsTable:'jawnix_invoice_records',
+  invoiceVoidsAvailable:true,
+  invoiceRecordsAvailable:true,
   init: () => {
     const cfg = window.JAWNIX_CONFIG || {};
     if(!cfg.supabaseUrl || !cfg.supabaseAnonKey){
@@ -291,9 +326,15 @@ const DB = {
     DB.workspaceId = cfg.workspaceId || 'default';
     DB.leadTable = cfg.leadsTable || DB.leadTable;
     DB.settingsTable = cfg.settingsTable || DB.settingsTable;
+    DB.invoiceVoidsTable = cfg.invoiceVoidsTable || DB.invoiceVoidsTable;
+    DB.invoiceRecordsTable = cfg.invoiceRecordsTable || DB.invoiceRecordsTable;
   },
   fail: (error) => {
     if(error) throw new Error(error.message || 'Database request failed.');
+  },
+  missingOptionalTable: (error) => {
+    const text = `${error?.code || ''} ${error?.message || ''} ${error?.details || ''}`;
+    return /42P01|PGRST205|PGRST106|relation .* does not exist|could not find .*table|schema cache/i.test(text);
   },
   normalizeLead: (lead) => ({
     ...lead,
@@ -305,6 +346,22 @@ const DB = {
   normalizeSettings: (settings) => ({
     default_rate:Number(settings.default_rate),
     invoice_counter:Number(settings.invoice_counter),
+  }),
+  normalizeInvoiceVoid: (voided) => ({
+    week_start:voided.week_start,
+    client:String(voided.client || ''),
+    voided_at:voided.voided_at || '',
+  }),
+  normalizeInvoiceRecord: (record) => ({
+    week_start:record.week_start,
+    client:String(record.client || ''),
+    invoice_num:String(record.invoice_num || ''),
+    checkout_session_id:String(record.checkout_session_id || ''),
+    checkout_url:String(record.checkout_url || ''),
+    pdf_filename:String(record.pdf_filename || ''),
+    total_due:Number(record.total_due || 0),
+    generated_at:record.generated_at || '',
+    voided_at:record.voided_at || '',
   }),
   nextLeadId: () => {
     const used = new Set(_leads.map(x=>String(x.id)));
@@ -348,10 +405,47 @@ const DB = {
       DB.fail(error);
       _settings = DB.normalizeSettings(data);
     }
+    await Promise.all([DB.loadInvoiceVoids(), DB.loadInvoiceRecords()]);
     await DB.migrateLocalStorage();
   },
   leads: () => _leads.slice(),
   settings: () => ({..._settings}),
+  invoiceVoids: () => _invoiceVoids.slice(),
+  invoiceRecords: () => _invoiceRecords.slice(),
+  isInvoiceVoided: (client,weekStart) => _invoiceVoids.some(v=>v.client===client && v.week_start===weekStart),
+  loadInvoiceVoids: async () => {
+    const {data,error}=await DB.client.from(DB.invoiceVoidsTable)
+      .select(INVOICE_VOID_FIELDS)
+      .eq('workspace_id',DB.workspaceId)
+      .order('week_start',{ascending:false})
+      .order('client');
+    if(error){
+      if(DB.missingOptionalTable(error)){
+        DB.invoiceVoidsAvailable=false;
+        _invoiceVoids=[];
+        return;
+      }
+      DB.fail(error);
+    }
+    DB.invoiceVoidsAvailable=true;
+    _invoiceVoids=(data||[]).map(DB.normalizeInvoiceVoid);
+  },
+  loadInvoiceRecords: async () => {
+    const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
+      .select(INVOICE_RECORD_FIELDS)
+      .eq('workspace_id',DB.workspaceId)
+      .order('generated_at',{ascending:false});
+    if(error){
+      if(DB.missingOptionalTable(error)){
+        DB.invoiceRecordsAvailable=false;
+        _invoiceRecords=[];
+        return;
+      }
+      DB.fail(error);
+    }
+    DB.invoiceRecordsAvailable=true;
+    _invoiceRecords=(data||[]).map(DB.normalizeInvoiceRecord);
+  },
   createLead: async (payload) => {
     const {data,error}=await DB.client.from(DB.leadTable)
       .insert(DB.leadRecord({id:DB.nextLeadId(),...payload},true))
@@ -389,6 +483,10 @@ const DB = {
     const client=String(newName||'').trim();
     const email=String(newEmail||'').trim();
     if(!oldName || !client) throw new Error('Select a client and enter a name.');
+    if(client!==oldName){
+      DB.ensureInvoiceRenameSafe(oldName,client);
+      await DB.renameInvoiceClient(oldName,client);
+    }
     const {data,error}=await DB.client.from(DB.leadTable)
       .update({client,email})
       .eq('workspace_id',DB.workspaceId)
@@ -400,12 +498,68 @@ const DB = {
     _leads=_leads.map(e=>byId.get(String(e.id))||e);
     return {updated:updated.length,client,email};
   },
+  ensureInvoiceRenameSafe: (oldName,client) => {
+    const oldVoidWeeks=new Set(_invoiceVoids.filter(v=>v.client===oldName).map(v=>v.week_start));
+    const voidConflict=_invoiceVoids.some(v=>v.client===client && oldVoidWeeks.has(v.week_start));
+    if(voidConflict) throw new Error(`Cannot rename ${oldName} to ${client}: invoice voids already exist for both clients in the same week.`);
+    const targetRecords=new Set(_invoiceRecords
+      .filter(r=>r.client===client)
+      .map(r=>`${r.week_start}||${r.invoice_num}`));
+    const recordConflict=_invoiceRecords
+      .filter(r=>r.client===oldName)
+      .some(r=>targetRecords.has(`${r.week_start}||${r.invoice_num}`));
+    if(recordConflict) throw new Error(`Cannot rename ${oldName} to ${client}: invoice records would duplicate an existing invoice number for the same week.`);
+  },
+  renameInvoiceClient: async (oldName,client) => {
+    if(DB.invoiceRecordsAvailable){
+      const res=await DB.client.from(DB.invoiceRecordsTable)
+        .update({client})
+        .eq('workspace_id',DB.workspaceId)
+        .eq('client',oldName);
+      if(res.error){
+        if(DB.missingOptionalTable(res.error)) DB.invoiceRecordsAvailable=false;
+        else DB.fail(res.error);
+      }
+    }
+    if(DB.invoiceVoidsAvailable){
+      const res=await DB.client.from(DB.invoiceVoidsTable)
+        .update({client})
+        .eq('workspace_id',DB.workspaceId)
+        .eq('client',oldName);
+      if(res.error){
+        if(DB.missingOptionalTable(res.error)) DB.invoiceVoidsAvailable=false;
+        else DB.fail(res.error);
+      }
+    }
+    _invoiceVoids=_invoiceVoids.map(v=>v.client===oldName?{...v,client}:v);
+    _invoiceRecords=_invoiceRecords.map(v=>v.client===oldName?{...v,client}:v);
+  },
   clearLeads: async () => {
+    if(DB.invoiceVoidsAvailable){
+      const res=await DB.client.from(DB.invoiceVoidsTable)
+        .delete()
+        .eq('workspace_id',DB.workspaceId);
+      if(res.error){
+        if(DB.missingOptionalTable(res.error)) DB.invoiceVoidsAvailable=false;
+        else DB.fail(res.error);
+      }
+    }
+    if(DB.invoiceRecordsAvailable){
+      const res=await DB.client.from(DB.invoiceRecordsTable)
+        .delete()
+        .eq('workspace_id',DB.workspaceId);
+      if(res.error){
+        if(DB.missingOptionalTable(res.error)) DB.invoiceRecordsAvailable=false;
+        else DB.fail(res.error);
+      }
+    }
     const {error}=await DB.client.from(DB.leadTable)
       .delete()
       .eq('workspace_id',DB.workspaceId);
     DB.fail(error);
     _leads = [];
+    _invoiceVoids = [];
+    _invoiceRecords = [];
   },
   saveSettings: async (payload) => {
     const record = {
@@ -420,6 +574,95 @@ const DB = {
     DB.fail(error);
     _settings = DB.normalizeSettings(data);
     return _settings;
+  },
+  saveInvoiceRecord: async (payload) => {
+    if(!DB.invoiceRecordsAvailable) return null;
+    const record={
+      workspace_id:DB.workspaceId,
+      week_start:payload.week_start,
+      client:String(payload.client||'').trim(),
+      invoice_num:String(payload.invoice_num||'').trim(),
+      checkout_session_id:String(payload.checkout_session_id||'').trim(),
+      checkout_url:String(payload.checkout_url||'').trim(),
+      pdf_filename:String(payload.pdf_filename||'').trim(),
+      total_due:parseFloat(payload.total_due||0),
+      voided_at:null,
+    };
+    if(!record.week_start || !record.client || !record.invoice_num) return null;
+    const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
+      .upsert(record,{onConflict:'workspace_id,week_start,client,invoice_num'})
+      .select(INVOICE_RECORD_FIELDS)
+      .single();
+    if(error){
+      if(DB.missingOptionalTable(error)){
+        DB.invoiceRecordsAvailable=false;
+        return null;
+      }
+      DB.fail(error);
+    }
+    const saved=DB.normalizeInvoiceRecord(data);
+    _invoiceRecords=_invoiceRecords.filter(r=>!(r.week_start===saved.week_start && r.client===saved.client && r.invoice_num===saved.invoice_num));
+    _invoiceRecords.unshift(saved);
+    return saved;
+  },
+  voidInvoice: async (client,weekStart) => {
+    if(!DB.invoiceVoidsAvailable) throw new Error('Invoice voids table is missing. Run the updated supabase-schema.sql in Supabase.');
+    const record={
+      workspace_id:DB.workspaceId,
+      week_start:weekStart,
+      client:String(client||'').trim(),
+    };
+    if(!record.client || !record.week_start) throw new Error('Select a client and week.');
+    const {data,error}=await DB.client.from(DB.invoiceVoidsTable)
+      .upsert(record,{onConflict:'workspace_id,week_start,client'})
+      .select(INVOICE_VOID_FIELDS)
+      .single();
+    if(error){
+      if(DB.missingOptionalTable(error)) DB.invoiceVoidsAvailable=false;
+      DB.fail(error);
+    }
+    const voided=DB.normalizeInvoiceVoid(data);
+    _invoiceVoids=_invoiceVoids.filter(v=>!(v.client===voided.client && v.week_start===voided.week_start));
+    _invoiceVoids.push(voided);
+    _invoiceVoids.sort((a,b)=>b.week_start.localeCompare(a.week_start)||a.client.localeCompare(b.client));
+    return voided;
+  },
+  restoreInvoice: async (client,weekStart) => {
+    if(!DB.invoiceVoidsAvailable) throw new Error('Invoice voids table is missing. Run the updated supabase-schema.sql in Supabase.');
+    const {error}=await DB.client.from(DB.invoiceVoidsTable)
+      .delete()
+      .eq('workspace_id',DB.workspaceId)
+      .eq('client',client)
+      .eq('week_start',weekStart);
+    if(error){
+      if(DB.missingOptionalTable(error)) DB.invoiceVoidsAvailable=false;
+      DB.fail(error);
+    }
+    _invoiceVoids=_invoiceVoids.filter(v=>!(v.client===client && v.week_start===weekStart));
+    return {client,week_start:weekStart};
+  },
+  markInvoiceRecordsVoided: async (client,weekStart) => {
+    if(!DB.invoiceRecordsAvailable) return {updated:0};
+    const now=new Date().toISOString();
+    const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
+      .update({voided_at:now})
+      .eq('workspace_id',DB.workspaceId)
+      .eq('client',client)
+      .eq('week_start',weekStart)
+      .is('voided_at',null)
+      .select(INVOICE_RECORD_FIELDS);
+    if(error){
+      if(DB.missingOptionalTable(error)){
+        DB.invoiceRecordsAvailable=false;
+        return {updated:0};
+      }
+      DB.fail(error);
+    }
+    const updated=(data||[]).map(DB.normalizeInvoiceRecord);
+    const key=r=>`${r.week_start}||${r.client}||${r.invoice_num}`;
+    const byKey=new Map(updated.map(r=>[key(r),r]));
+    _invoiceRecords=_invoiceRecords.map(r=>byKey.get(key(r))||r);
+    return {updated:updated.length};
   },
   bulkRate: async (weekStart,rate) => {
     const start = weekStart;
@@ -495,7 +738,7 @@ function viewWeekly(weekStart){
   const entries = DB.leads().filter(e=>{const d=new Date(e.date+'T12:00:00');return d>=start&&d<=end;});
   const map = {};
   entries.forEach(e=>{
-    if(!map[e.client]) map[e.client]={client:e.client,email:e.email||'',days:[],total_leads:0,total_amount:0,rate:e.rate};
+    if(!map[e.client]) map[e.client]={client:e.client,email:e.email||'',week_start:weekStart,days:[],total_leads:0,total_amount:0,rate:e.rate,voided:false};
     const d=new Date(e.date+'T12:00:00');
     map[e.client].days.push({id:e.id,day:DAY_NAMES[d.getDay()],
       date:d.toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'numeric'}),
@@ -503,7 +746,10 @@ function viewWeekly(weekStart){
     map[e.client].total_leads+=e.leads;
     map[e.client].total_amount+=e.amount;
   });
-  Object.values(map).forEach(c=>c.total_amount=Math.round(c.total_amount*100)/100);
+  Object.values(map).forEach(c=>{
+    c.total_amount=Math.round(c.total_amount*100)/100;
+    c.voided=DB.isInvoiceVoided(c.client,weekStart);
+  });
   const endD=new Date(weekStart+'T12:00:00'); endD.setDate(endD.getDate()+6);
   const week_label=start.toLocaleDateString('en-US',{month:'short',day:'numeric'})+'–'+
                    endD.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
@@ -567,7 +813,7 @@ async function bumpInvNum(){
 async function init(){
   const t=today();
   document.getElementById('hdr-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-  ['log-date','daily-date','weekly-date','set-week'].forEach(id=>document.getElementById(id).value=t);
+  ['log-date','daily-date','weekly-date','set-week','set-void-week'].forEach(id=>document.getElementById(id).value=t);
   try{
     await DB.load();
   }catch(err){
@@ -745,30 +991,32 @@ function loadWeekly(){
   const sun=getSun(date);
   const el=document.getElementById('weekly-out');
   const data=viewWeekly(sun);
+  document.getElementById('weekly-range').textContent=data.week_label;
   if(!data.clients.length){el.innerHTML=`<div class="msg-info">No entries for week of ${data.week_label}.</div>`;return;}
-  const weekLeads=data.clients.reduce((s,c)=>s+c.total_leads,0);
-  const weekAmt=data.clients.reduce((s,c)=>s+c.total_amount,0);
+  const billedClients=data.clients.filter(c=>!c.voided);
+  const weekLeads=billedClients.reduce((s,c)=>s+c.total_leads,0);
+  const weekAmt=billedClients.reduce((s,c)=>s+c.total_amount,0);
   el.innerHTML=`
     <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Week of ${data.week_label}</div>
     <table style="margin-bottom:18px">
       <thead><tr><th>Client</th><th class="td-r">Leads</th><th class="td-r">Amount</th><th></th></tr></thead>
-      <tbody>${data.clients.map((c,i)=>`<tr>
-        <td>${esc(c.client)}</td>
+      <tbody>${data.clients.map((c,i)=>`<tr class="${c.voided?'muted-row':''}">
+        <td>${esc(c.client)} ${c.voided?'<span class="badge badge-void" style="margin-left:6px">Void</span>':''}</td>
         <td class="td-r">${c.total_leads.toLocaleString()}</td>
         <td class="td-r">$${c.total_amount.toFixed(2)}</td>
-        <td style="padding-left:8px"><button class="btn btn-sm btn-primary" onclick="openInvModal(${i})">Invoice</button></td>
+        <td style="padding-left:8px">${c.voided?'<span class="badge badge-void">Excluded</span>':`<button class="btn btn-sm btn-primary" onclick="openInvModal(${i})">Invoice</button>`}</td>
       </tr>`).join('')}</tbody>
-      <tfoot><tr class="tr-total"><td>Total</td><td class="td-r">${weekLeads.toLocaleString()}</td><td class="td-r">$${weekAmt.toFixed(2)}</td><td></td></tr></tfoot>
+      <tfoot><tr class="tr-total"><td>Billed total</td><td class="td-r">${weekLeads.toLocaleString()}</td><td class="td-r">$${weekAmt.toFixed(2)}</td><td></td></tr></tfoot>
     </table>`+
-    data.clients.map((c,i)=>`<div class="card">
+    data.clients.map((c,i)=>`<div class="card ${c.voided?'muted-row':''}">
       <div class="card-head">
         <div>
-          <div class="card-name">${esc(c.client)}</div>
+          <div class="card-name">${esc(c.client)} ${c.voided?'<span class="badge badge-void" style="margin-left:6px">Void</span>':''}</div>
           <div class="card-sub">${c.total_leads.toLocaleString()} leads &middot; $${fmtRate(c.rate)}/lead</div>
         </div>
         <div style="text-align:right">
           <div class="card-amt">$${c.total_amount.toFixed(2)}</div>
-          <button class="btn btn-sm btn-primary" style="margin-top:6px" onclick="openInvModal(${i})">Invoice</button>
+          ${c.voided?'<span class="badge badge-void" style="margin-top:6px">Excluded from billing</span>':`<button class="btn btn-sm btn-primary" style="margin-top:6px" onclick="openInvModal(${i})">Invoice</button>`}
         </div>
       </div>
       <table>
@@ -785,11 +1033,23 @@ function loadWeekly(){
   window._weeklyLabel   = data.week_label;
 }
 
+function changeWeek(offset){
+  const input=document.getElementById('weekly-date');
+  const base=new Date(getSun(input.value || today())+'T12:00:00');
+  base.setDate(base.getDate()+(offset*7));
+  input.value=localDate(base);
+  loadWeekly();
+}
+
 // ── Invoice modal ─────────────────────────────────────────────────────────────
 function openInvModal(clientIdx){
   const c    = window._weeklyClients[clientIdx];
+  if(c.voided){
+    alert('This client invoice is voided for the selected week. Restore it in Settings before generating a new invoice.');
+    return;
+  }
   const label= window._weeklyLabel;
-  _modalData = {client:c.client, email:c.email, weekLabel:label, days:c.days};
+  _modalData = {client:c.client, email:c.email, weekStart:c.week_start, weekLabel:label, days:c.days};
 
   document.getElementById('m-client').textContent = c.client;
   document.getElementById('m-week').textContent   = label;
@@ -822,6 +1082,7 @@ function buildInvPayload(){
     invoiceNum:   num,
     invoiceDate:  fmtDate,
     weekRange:    _modalData.weekLabel,
+    weekStart:    _modalData.weekStart,
     clientName:   _modalData.client,
     clientEmail:  _modalData.email,
     days: _modalData.days.map(d=>({day:d.day,date:d.date,leads:d.leads,amount:d.amount})),
@@ -862,11 +1123,22 @@ async function generateInvoicePDF(){
     }
     const blob=await res.blob();
     const checkoutUrl=res.headers.get('X-Stripe-Checkout-Url');
+    const checkoutSessionId=res.headers.get('X-Stripe-Checkout-Session-Id') || '';
+    const pdfFilename=filenameFromDisposition(res.headers.get('Content-Disposition'));
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
-    a.download=filenameFromDisposition(res.headers.get('Content-Disposition'));
+    a.download=pdfFilename;
     a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+    await DB.saveInvoiceRecord({
+      week_start:_modalData.weekStart,
+      client:_modalData.client,
+      invoice_num:payload.invoiceNum,
+      checkout_session_id:checkoutSessionId,
+      checkout_url:checkoutUrl || '',
+      pdf_filename:pdfFilename,
+      total_due:payload.totalDue,
+    });
     await bumpInvNum();
     document.getElementById('m-inv-num').value = nextInvNum();
     rebuildInvJSON();
@@ -904,7 +1176,9 @@ function loadSettingsTab(){
   document.getElementById('set-current-rate').textContent='$'+fmtRate(defaultRate)+' / lead';
   document.getElementById('set-rate').value=defaultRate;
   document.getElementById('set-inv-num').value=nextInvNum();
+  document.getElementById('set-void-week').value=document.getElementById('set-void-week').value || document.getElementById('weekly-date').value || today();
   refreshClientEditor();
+  refreshInvoiceVoidEditor();
 }
 
 function refreshClientEditor(selectedName){
@@ -933,6 +1207,101 @@ function loadClientEditor(){
   document.getElementById('set-client-email').value=client?.email || '';
 }
 
+function invoiceRecordsFor(client,weekStart){
+  return DB.invoiceRecords().filter(r=>r.client===client && r.week_start===weekStart);
+}
+
+function activeCheckoutSessionIds(client,weekStart){
+  return invoiceRecordsFor(client,weekStart)
+    .filter(r=>!r.voided_at && r.checkout_session_id)
+    .map(r=>r.checkout_session_id);
+}
+
+function refreshInvoiceVoidEditor(selectedName){
+  const select=document.getElementById('set-void-client');
+  if(!select)return;
+  const clients=getClientSummary();
+  const btn=document.getElementById('set-void-btn');
+  if(!clients.length){
+    select.innerHTML='<option value="">No clients yet</option>';
+    btn.disabled=true;
+    document.getElementById('set-void-status').textContent='Log leads before voiding invoices.';
+    document.getElementById('set-void-list').innerHTML='';
+    return;
+  }
+  select.innerHTML=clients.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  if(selectedName && clients.some(c=>c.name===selectedName)) select.value=selectedName;
+  btn.disabled=false;
+  loadInvoiceVoidEditor();
+}
+
+function loadInvoiceVoidEditor(){
+  const client=document.getElementById('set-void-client')?.value || '';
+  const date=document.getElementById('set-void-week')?.value || today();
+  const weekStart=getSun(date);
+  const btn=document.getElementById('set-void-btn');
+  const status=document.getElementById('set-void-status');
+  const list=document.getElementById('set-void-list');
+  const voided=client ? DB.isInvoiceVoided(client,weekStart) : false;
+  const records=client ? invoiceRecordsFor(client,weekStart) : [];
+  btn.textContent=voided ? 'Restore invoice' : 'Void invoice';
+  btn.classList.toggle('btn-danger',!voided);
+  btn.classList.toggle('btn-primary',voided);
+  const sessions=activeCheckoutSessionIds(client,weekStart).length;
+  status.textContent=client
+    ? `${fmtD(weekStart)} week for ${client}: ${voided ? 'voided' : 'active'}${sessions ? `, ${sessions} Stripe session${sessions===1?'':'s'} available to expire` : ''}.`
+    : 'Select a client.';
+  if(!records.length){
+    list.innerHTML='<div class="msg-info">No generated invoice records for this client/week yet.</div>';
+    return;
+  }
+  list.innerHTML=`<table><thead><tr><th>Invoice</th><th>Generated</th><th class="td-r">Total</th><th>Status</th></tr></thead>
+    <tbody>${records.map(r=>`<tr>
+      <td>${esc(r.invoice_num)}</td>
+      <td>${esc(r.generated_at ? new Date(r.generated_at).toLocaleDateString('en-US') : '')}</td>
+      <td class="td-r">$${r.total_due.toFixed(2)}</td>
+      <td>${r.voided_at?'<span class="badge badge-void">Void</span>':'<span class="badge badge-ok">Active</span>'}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+async function expireStripeSessions(sessionIds){
+  if(!sessionIds.length) return {expired:[],errors:[]};
+  const res=await fetch('/api/void-invoice',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({checkoutSessionIds:sessionIds}),
+  });
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error || 'Stripe void failed.');
+  if(data.errors?.length) throw new Error(data.errors.map(e=>e.error || e).join('; '));
+  return data;
+}
+
+async function toggleInvoiceVoid(){
+  const client=document.getElementById('set-void-client')?.value || '';
+  const weekStart=getSun(document.getElementById('set-void-week')?.value || today());
+  const msg=document.getElementById('set-void-msg');
+  if(!client){msg.innerHTML='<div class="msg-err">Select a client.</div>';return;}
+  try{
+    if(DB.isInvoiceVoided(client,weekStart)){
+      await DB.restoreInvoice(client,weekStart);
+      msg.innerHTML='<div class="msg-ok">Invoice restored. Previously expired Stripe links cannot be reopened; generate a new invoice if needed.</div>';
+    }else{
+      const sessions=activeCheckoutSessionIds(client,weekStart);
+      if(sessions.length){
+        await expireStripeSessions(sessions);
+      }
+      await DB.voidInvoice(client,weekStart);
+      await DB.markInvoiceRecordsVoided(client,weekStart);
+      msg.innerHTML=`<div class="msg-ok">Invoice voided${sessions.length ? ` and ${sessions.length} Stripe session${sessions.length===1?'':'s'} expired` : ''}.</div>`;
+    }
+    loadInvoiceVoidEditor();
+    refreshViews();
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Void update failed: ${esc(err.message)}</div>`;
+  }
+}
+
 async function saveClientDetails(){
   const select=document.getElementById('set-client-select');
   const msg=document.getElementById('set-client-msg');
@@ -945,6 +1314,7 @@ async function saveClientDetails(){
     const result=await updateClientDetails(oldName,newName,newEmail);
     refreshClients();
     refreshClientEditor(result.client);
+    refreshInvoiceVoidEditor(result.client);
     refreshViews();
     msg.innerHTML=`<div class="msg-ok">Updated ${result.updated} entries for ${esc(result.client)}.</div>`;
     setTimeout(()=>msg.innerHTML='',3000);
@@ -1009,6 +1379,7 @@ function importJSON(input){
       const result=await DB.importLeads(incoming);
       refreshClients();
       refreshClientEditor();
+      refreshInvoiceVoidEditor();
       msg.innerHTML=`<div class="msg-ok">Imported ${result.imported} new entries.</div>`;
       input.value='';
     }catch(err){msg.innerHTML=`<div class="msg-err">Import failed: ${esc(err.message)}</div>`;}
@@ -1022,12 +1393,13 @@ function exportJSON(){
 }
 
 async function clearData(){
-  if(!confirm('Delete ALL lead entries? This cannot be undone.'))return;
+  if(!confirm('Delete ALL lead entries, invoice voids, and invoice records? This cannot be undone.'))return;
   try{
     await DB.clearLeads();
     refreshClients();
     refreshClientEditor();
-    document.getElementById('set-data-msg').innerHTML='<div class="msg-ok">All entries cleared.</div>';
+    refreshInvoiceVoidEditor();
+    document.getElementById('set-data-msg').innerHTML='<div class="msg-ok">All entries and invoice state cleared.</div>';
     reloadActive();
   }catch(err){
     document.getElementById('set-data-msg').innerHTML=`<div class="msg-err">Clear failed: ${esc(err.message)}</div>`;

@@ -6,6 +6,8 @@ set -eu
 : "${JAWNIX_WORKSPACE_ID:=default}"
 : "${JAWNIX_LEADS_TABLE:=jawnix_leads}"
 : "${JAWNIX_SETTINGS_TABLE:=jawnix_settings}"
+: "${JAWNIX_INVOICE_VOIDS_TABLE:=jawnix_invoice_voids}"
+: "${JAWNIX_INVOICE_RECORDS_TABLE:=jawnix_invoice_records}"
 : "${CADDY_BIN:=caddy}"
 : "${APP_DIR:=/app}"
 : "${JAWNIX_INVOICE_DIR:=$APP_DIR/invoices}"
@@ -38,6 +40,8 @@ window.JAWNIX_CONFIG = {
   workspaceId: '$(js_escape "$JAWNIX_WORKSPACE_ID")',
   leadsTable: '$(js_escape "$JAWNIX_LEADS_TABLE")',
   settingsTable: '$(js_escape "$JAWNIX_SETTINGS_TABLE")',
+  invoiceVoidsTable: '$(js_escape "$JAWNIX_INVOICE_VOIDS_TABLE")',
+  invoiceRecordsTable: '$(js_escape "$JAWNIX_INVOICE_RECORDS_TABLE")',
 };
 EOF
 
