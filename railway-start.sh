@@ -45,7 +45,7 @@ cat > "$APP_DIR/Caddyfile.generated" <<EOF
 	auto_https off
 }
 
-:$PORT {
+0.0.0.0:$PORT {
 	root * $APP_DIR
 
 	handle /healthz {
@@ -57,7 +57,7 @@ if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
   cat >> "$APP_DIR/Caddyfile.generated" <<EOF
 
 	@protected not path /healthz
-	basicauth @protected {
+	basic_auth @protected {
 		$JAWNIX_BASIC_AUTH_USER $JAWNIX_BASIC_AUTH_HASH
 	}
 EOF

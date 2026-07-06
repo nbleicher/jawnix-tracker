@@ -3,7 +3,7 @@
 	auto_https off
 }
 
-:{$PORT:8080} {
+0.0.0.0:{$PORT:8080} {
 	root * /app
 
 	handle /healthz {
@@ -11,7 +11,7 @@
 	}
 
 	@protected not path /healthz
-	basicauth @protected {
+	basic_auth @protected {
 		{$JAWNIX_BASIC_AUTH_USER} {$JAWNIX_BASIC_AUTH_HASH}
 	}
 
