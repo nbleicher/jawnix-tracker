@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jawnix - Login</title>
+<style>
+:root{--blue:#185FA5;--navy:#1f4e79;--surface:#f8fafc;--border:#dbe3ec;--text:#0f172a;--muted:#64748b;--danger:#991b1b;--danger-bg:#fef2f2;--danger-border:#fca5a5;--r:8px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;font-family:Arial,Helvetica,sans-serif;color:var(--text);background:linear-gradient(180deg,#eef5fb 0,#fff 42%);display:flex;align-items:center;justify-content:center;padding:24px}
+main{width:100%;max-width:380px}
+.brand{margin-bottom:22px;text-align:center}
+.logo{font-size:24px;font-weight:800;letter-spacing:.05em;color:var(--navy)}
+.logo span{color:#60a5fa}
+.sub{font-size:13px;color:var(--muted);margin-top:4px}
+.panel{background:#fff;border:1px solid var(--border);border-radius:8px;padding:24px;box-shadow:0 14px 40px rgba(15,23,42,.08)}
+h1{font-size:18px;line-height:1.2;color:var(--navy);margin-bottom:18px}
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+input{height:40px;border:1px solid var(--border);border-radius:var(--r);padding:0 11px;font-size:15px;color:var(--text);background:#fff;width:100%}
+input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,95,165,.12)}
+button{width:100%;height:40px;border:1px solid var(--blue);border-radius:var(--r);background:var(--blue);color:#fff;font-size:14px;font-weight:700;cursor:pointer}
+button:hover{background:var(--navy);border-color:var(--navy)}
+button:disabled{opacity:.65;cursor:not-allowed}
+.error{display:none;background:var(--danger-bg);border:1px solid var(--danger-border);border-radius:var(--r);padding:10px 12px;color:var(--danger);font-size:13px;margin-bottom:14px}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <div class="logo">JAWN<span>IX</span></div>
+    <div class="sub">Lead Tracker &amp; Invoice Builder</div>
+  </div>
+  <section class="panel">
+    <h1>Log in</h1>
+    <div class="error" id="error"></div>
+    <form id="login-form">
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button id="submit" type="submit">Log in</button>
+    </form>
+  </section>
+</main>
+<script>
+const form=document.getElementById('login-form');
+const errorBox=document.getElementById('error');
+const button=document.getElementById('submit');
+const next=new URLSearchParams(window.location.search).get('next') || '/';
+
+function showError(message){
+  errorBox.textContent=message;
+  errorBox.style.display='block';
+}
+
+form.addEventListener('submit',async(event)=>{
+  event.preventDefault();
+  errorBox.style.display='none';
+  button.disabled=true;
+  button.textContent='Logging in...';
+  try{
+    const res=await fetch('/api/auth/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body:JSON.stringify({
+        username:form.username.value,
+        password:form.password.value
+      })
+    });
+    if(!res.ok){
+      let message='Invalid username or password.';
+      try{
+        const data=await res.json();
+        message=data.error || message;
+      }catch(_err){}
+      showError(message);
+      return;
+    }
+    window.location.assign(next.startsWith('/') && !next.startsWith('//') ? next : '/');
+  }catch(_err){
+    showError('Login failed. Check your connection and try again.');
+  }finally{
+    button.disabled=false;
+    button.textContent='Log in';
+  }
+});
+</script>
+</body>
+</html>

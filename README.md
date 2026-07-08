@@ -19,8 +19,8 @@ This repo is configured for Railway with Caddy and Nixpacks:
 
 - `railway.json` pins the Railway deploy settings.
 - `Dockerfile` installs Caddy and LibreOffice.
-- `Caddyfile` serves the static app and proxies invoice API requests.
-- `railway-start.sh` creates `config.js` from Railway Variables, starts the invoice API, and enables Basic Auth by default.
+- `Caddyfile` serves the login page, protects the tracker with a signed session cookie, and proxies invoice API requests.
+- `railway-start.sh` creates `config.js` from Railway Variables, starts the invoice API, and enables the login page by default.
 
 Set these Railway Variables on the service:
 
@@ -39,16 +39,18 @@ JAWNIX_PUBLIC_BASE_URL=https://YOUR-APP-DOMAIN
 STRIPE_SECRET_KEY=YOUR_STRIPE_SECRET_KEY
 STRIPE_CURRENCY=usd
 JAWNIX_BASIC_AUTH_USER=jawnix
-JAWNIX_BASIC_AUTH_HASH=GENERATE_WITH_CADDY_HASH_PASSWORD
+JAWNIX_BASIC_AUTH_PASSWORD=CHOOSE-A-STRONG-PASSWORD
+JAWNIX_SESSION_SECRET=GENERATE-A-RANDOM-SECRET
+JAWNIX_SESSION_TTL_SECONDS=86400
 PORT=8080
 ```
 
 The same variables are listed in `.env.example`.
 
-Generate `JAWNIX_BASIC_AUTH_HASH` with Caddy:
+The login page posts to `/api/auth/login`, which sets an HttpOnly signed session cookie. Set `JAWNIX_SESSION_SECRET` to a long random value so sessions remain valid even if the password changes.
 
 ```sh
-docker run --rm caddy:2-alpine caddy hash-password --plaintext 'choose-a-password'
+openssl rand -base64 32
 ```
 
 Only set `JAWNIX_ALLOW_UNPROTECTED=true` for a deliberately public deployment after replacing the included permissive Supabase policies with an auth-backed access model.
@@ -79,7 +81,8 @@ railway variable set \
   STRIPE_SECRET_KEY=YOUR_STRIPE_SECRET_KEY \
   STRIPE_CURRENCY=usd \
   JAWNIX_BASIC_AUTH_USER=jawnix \
-  JAWNIX_BASIC_AUTH_HASH='PASTE-CADDY-HASH-HERE' \
+  JAWNIX_BASIC_AUTH_PASSWORD='CHOOSE-A-STRONG-PASSWORD' \
+  JAWNIX_SESSION_SECRET='PASTE-RANDOM-SECRET-HERE' \
   PORT=8080
 railway up
 railway domain
