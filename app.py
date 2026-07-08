@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
+import base64
+import hashlib
+import hmac
+import http.cookies
 import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,6 +21,7 @@ from html import escape as xml_escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from secrets import token_urlsafe
 from urllib.parse import urlparse
 
 
@@ -29,6 +35,8 @@ TEMPLATE_PATH = Path(
 )
 INVOICE_DIR = Path(os.environ.get("JAWNIX_INVOICE_DIR", APP_DIR / "invoices"))
 MAX_BODY_BYTES = int(os.environ.get("JAWNIX_MAX_INVOICE_JSON_BYTES", "1048576"))
+AUTH_COOKIE_NAME = os.environ.get("JAWNIX_AUTH_COOKIE_NAME", "jawnix_session")
+SESSION_TTL_SECONDS = int(os.environ.get("JAWNIX_SESSION_TTL_SECONDS", "86400"))
 STRIPE_API_URL = "https://api.stripe.com/v1/checkout/sessions"
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -53,6 +61,97 @@ for prefix, uri in {
     "w14": "http://schemas.microsoft.com/office/word/2010/wordml",
 }.items():
     ET.register_namespace(prefix, uri)
+
+
+def auth_is_enabled():
+    return os.environ.get("JAWNIX_ALLOW_UNPROTECTED", "false").lower() != "true"
+
+
+def auth_user():
+    return os.environ.get("JAWNIX_BASIC_AUTH_USER", "").strip()
+
+
+def auth_password():
+    return os.environ.get("JAWNIX_BASIC_AUTH_PASSWORD", "")
+
+
+def session_secret():
+    configured = os.environ.get("JAWNIX_SESSION_SECRET", "")
+    return configured or auth_password() or os.environ.get("JAWNIX_BASIC_AUTH_HASH", "")
+
+
+def cookie_secure_flag():
+    return os.environ.get("JAWNIX_COOKIE_SECURE", "true").lower() != "false"
+
+
+def sign_session_payload(payload):
+    secret = session_secret()
+    if not secret:
+        return ""
+    return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def make_session_token():
+    expires_at = str(int(time.time()) + SESSION_TTL_SECONDS)
+    payload = f"{expires_at}:{token_urlsafe(18)}"
+    signature = sign_session_payload(payload)
+    raw = f"{payload}:{signature}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def decode_session_token(token):
+    try:
+        padded = token + ("=" * (-len(token) % 4))
+        return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def valid_session_token(token):
+    decoded = decode_session_token(str(token or ""))
+    parts = decoded.split(":")
+    if len(parts) != 3:
+        return False
+    expires_at, nonce, signature = parts
+    if not expires_at.isdigit() or not nonce or int(expires_at) < int(time.time()):
+        return False
+    expected = sign_session_payload(f"{expires_at}:{nonce}")
+    return bool(expected) and hmac.compare_digest(signature, expected)
+
+
+def parse_cookie_header(value):
+    cookies = http.cookies.SimpleCookie()
+    try:
+        cookies.load(value or "")
+    except http.cookies.CookieError:
+        return {}
+    return {key: morsel.value for key, morsel in cookies.items()}
+
+
+def make_auth_cookie(token, max_age=SESSION_TTL_SECONDS):
+    parts = [
+        f"{AUTH_COOKIE_NAME}={token}",
+        "Path=/",
+        "HttpOnly",
+        "SameSite=Lax",
+        f"Max-Age={max_age}",
+    ]
+    if cookie_secure_flag():
+        parts.append("Secure")
+    return "; ".join(parts)
+
+
+def clear_auth_cookie():
+    parts = [
+        f"{AUTH_COOKIE_NAME}=",
+        "Path=/",
+        "HttpOnly",
+        "SameSite=Lax",
+        "Max-Age=0",
+    ]
+    if cookie_secure_flag():
+        parts.append("Secure")
+    return "; ".join(parts)
 
 
 def money(value):
@@ -676,26 +775,68 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Vary", "Origin")
         super().end_headers()
 
-    def send_json(self, status, payload):
+    def send_json(self, status, payload, extra_headers=None):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def send_empty(self, status, extra_headers=None):
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+
+    def has_valid_session(self):
+        if not auth_is_enabled():
+            return True
+        cookies = parse_cookie_header(self.headers.get("Cookie", ""))
+        return valid_session_token(cookies.get(AUTH_COOKIE_NAME, ""))
 
     def do_OPTIONS(self):
         self.send_response(HTTPStatus.NO_CONTENT)
         self.end_headers()
 
     def do_GET(self):
-        if urlparse(self.path).path == "/api/healthz":
+        path = urlparse(self.path).path
+        if path == "/api/healthz":
             self.send_json(HTTPStatus.OK, {"ok": True})
+            return
+        if path == "/api/auth/check":
+            if self.has_valid_session():
+                self.send_empty(HTTPStatus.NO_CONTENT)
+            else:
+                redirect_target = self.headers.get("X-Jawnix-Auth-Redirect", "")
+                if redirect_target.startswith("/") and not redirect_target.startswith("//"):
+                    self.send_empty(
+                        HTTPStatus.SEE_OTHER,
+                        {
+                            "Location": redirect_target,
+                            "Set-Cookie": clear_auth_cookie(),
+                        },
+                    )
+                    return
+                self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "Login required."})
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/api/auth/login":
+            self.handle_login()
+            return
+        if path == "/api/auth/logout":
+            self.send_json(
+                HTTPStatus.OK,
+                {"ok": True},
+                {"Set-Cookie": clear_auth_cookie()},
+            )
+            return
         if path == "/api/generate-invoice":
             self.handle_generate_invoice()
             return
@@ -714,6 +855,44 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Invalid request size.")
 
         return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def handle_login(self):
+        if not auth_is_enabled():
+            self.send_json(HTTPStatus.OK, {"ok": True})
+            return
+
+        configured_user = auth_user()
+        configured_password = auth_password()
+        if not configured_user or not configured_password:
+            self.send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": "Login is not configured on the server."},
+            )
+            return
+
+        try:
+            payload = self.read_json_body()
+        except json.JSONDecodeError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Request body must be valid JSON."})
+            return
+        except ValueError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid request size."})
+            return
+
+        submitted_user = str(payload.get("username", "")).strip()
+        submitted_password = str(payload.get("password", ""))
+        user_ok = hmac.compare_digest(submitted_user, configured_user)
+        password_ok = hmac.compare_digest(submitted_password, configured_password)
+        if not (user_ok and password_ok):
+            self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "Invalid username or password."})
+            return
+
+        token = make_session_token()
+        self.send_json(
+            HTTPStatus.OK,
+            {"ok": True},
+            {"Set-Cookie": make_auth_cookie(token)},
+        )
 
     def handle_void_invoice(self):
         try:

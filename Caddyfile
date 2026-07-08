@@ -19,17 +19,33 @@
 		reverse_proxy 127.0.0.1:{$JAWNIX_API_PORT:8001}
 	}
 
+	handle /api/auth/* {
+		reverse_proxy 127.0.0.1:{$JAWNIX_API_PORT:8001}
+	}
+
 	handle /api/* {
-		basicauth {
-			{$JAWNIX_BASIC_AUTH_USER} {$JAWNIX_BASIC_AUTH_HASH}
+		forward_auth 127.0.0.1:{$JAWNIX_API_PORT:8001} {
+			uri /api/auth/check
 		}
 
 		reverse_proxy 127.0.0.1:{$JAWNIX_API_PORT:8001}
 	}
 
+	handle /login.html {
+		file_server
+	}
+
+	handle /login {
+		redir * /login.html 308
+	}
+
 	handle {
-		basicauth {
-			{$JAWNIX_BASIC_AUTH_USER} {$JAWNIX_BASIC_AUTH_HASH}
+		@no_session not header Cookie *jawnix_session=*
+		redir @no_session /login.html 303
+
+		forward_auth 127.0.0.1:{$JAWNIX_API_PORT:8001} {
+			uri /api/auth/check
+			header_up X-Jawnix-Auth-Redirect /login.html
 		}
 
 		try_files {path} /index.html

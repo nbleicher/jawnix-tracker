@@ -13,7 +13,7 @@ set -eu
 : "${JAWNIX_INVOICE_DIR:=$APP_DIR/invoices}"
 : "${JAWNIX_ALLOW_UNPROTECTED:=false}"
 : "${JAWNIX_BASIC_AUTH_USER:=}"
-: "${JAWNIX_BASIC_AUTH_HASH:=}"
+: "${JAWNIX_BASIC_AUTH_PASSWORD:=}"
 
 : "${JAWNIX_SUPABASE_URL:=}"
 : "${JAWNIX_SUPABASE_ANON_KEY:=}"
@@ -23,8 +23,8 @@ if [ -z "$JAWNIX_SUPABASE_URL" ] || [ -z "$JAWNIX_SUPABASE_ANON_KEY" ]; then
 fi
 
 if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
-  if [ -z "$JAWNIX_BASIC_AUTH_USER" ] || [ -z "$JAWNIX_BASIC_AUTH_HASH" ]; then
-    echo "Error: set JAWNIX_BASIC_AUTH_USER and JAWNIX_BASIC_AUTH_HASH, or set JAWNIX_ALLOW_UNPROTECTED=true for an intentionally unprotected deployment." >&2
+  if [ -z "$JAWNIX_BASIC_AUTH_USER" ] || [ -z "$JAWNIX_BASIC_AUTH_PASSWORD" ]; then
+    echo "Error: set JAWNIX_BASIC_AUTH_USER and JAWNIX_BASIC_AUTH_PASSWORD, or set JAWNIX_ALLOW_UNPROTECTED=true for an intentionally unprotected deployment." >&2
     exit 1
   fi
 fi
@@ -79,40 +79,59 @@ cat > "$APP_DIR/Caddyfile.generated" <<EOF
 		reverse_proxy 127.0.0.1:$JAWNIX_API_PORT
 	}
 
-	handle /api/* {
 EOF
 
 if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
   cat >> "$APP_DIR/Caddyfile.generated" <<EOF
 
-	basicauth {
-		$JAWNIX_BASIC_AUTH_USER $JAWNIX_BASIC_AUTH_HASH
+	handle /api/auth/* {
+		reverse_proxy 127.0.0.1:$JAWNIX_API_PORT
 	}
-EOF
-fi
 
-cat >> "$APP_DIR/Caddyfile.generated" <<'EOF'
+	handle /api/* {
+		forward_auth 127.0.0.1:$JAWNIX_API_PORT {
+			uri /api/auth/check
+		}
 
-	reverse_proxy 127.0.0.1:__JAWNIX_API_PORT__
+		reverse_proxy 127.0.0.1:$JAWNIX_API_PORT
+	}
+
+	handle /login.html {
+		file_server
+	}
+
+	handle /login {
+		redir * /login.html 308
 	}
 
 	handle {
-EOF
+		@no_session not header Cookie *jawnix_session=*
+		redir @no_session /login.html 303
 
-if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
+		forward_auth 127.0.0.1:$JAWNIX_API_PORT {
+			uri /api/auth/check
+			header_up X-Jawnix-Auth-Redirect /login.html
+		}
+
+		try_files {path} /index.html
+		file_server
+	}
+EOF
+else
   cat >> "$APP_DIR/Caddyfile.generated" <<EOF
 
-	basicauth {
-		$JAWNIX_BASIC_AUTH_USER $JAWNIX_BASIC_AUTH_HASH
+	handle /api/* {
+		reverse_proxy 127.0.0.1:$JAWNIX_API_PORT
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
 	}
 EOF
 fi
 
 cat >> "$APP_DIR/Caddyfile.generated" <<'EOF'
-
-	try_files {path} /index.html
-	file_server
-	}
 
 	header {
 		X-Content-Type-Options nosniff
@@ -120,8 +139,6 @@ cat >> "$APP_DIR/Caddyfile.generated" <<'EOF'
 	}
 }
 EOF
-
-sed -i "s/__JAWNIX_API_PORT__/$JAWNIX_API_PORT/g" "$APP_DIR/Caddyfile.generated"
 
 "$CADDY_BIN" run --config "$APP_DIR/Caddyfile.generated" --adapter caddyfile &
 caddy_pid="$!"
