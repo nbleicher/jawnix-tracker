@@ -21,13 +21,13 @@ button,input{font:inherit}
 .tab{padding:11px 16px;font-size:13px;cursor:pointer;border:none;border-bottom:2px solid transparent;color:var(--muted);background:none;font-weight:500;white-space:nowrap}
 .tab.active{color:var(--blue);border-bottom-color:var(--blue)}
 .tab:hover:not(.active){color:var(--text)}
-.content{padding:20px 24px;max-width:720px;margin:0 auto}
+.content{padding:20px 24px;max-width:980px;margin:0 auto}
 .pane{display:none}.pane.active{display:block}
 .field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
 label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-input[type=text],input[type=email],input[type=number],input[type=date],input[type=file]{height:36px;border:1px solid var(--border);border-radius:var(--r);padding:0 10px;font-size:14px;color:var(--text);background:#fff;width:100%}
+input[type=text],input[type=email],input[type=number],input[type=date],input[type=file],select{height:36px;border:1px solid var(--border);border-radius:var(--r);padding:0 10px;font-size:14px;color:var(--text);background:#fff;width:100%}
 input[type=file]{padding:6px 10px;height:auto}
-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,95,165,.1)}
+input:focus,select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,95,165,.1)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .btn{height:36px;border-radius:var(--r);font-size:13px;line-height:1;cursor:pointer;padding:0 16px;border:1px solid var(--border);background:#fff;color:var(--text);font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:background .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease}
 .btn:hover{background:var(--surface)}
@@ -75,6 +75,19 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 .badge-ok{background:#dcfce7;color:#15803d}
 .badge-void{background:#f1f5f9;color:#475569}
 .muted-row td{color:var(--muted)}
+.history-toolbar{display:grid;grid-template-columns:1fr 150px 170px 130px;gap:12px;align-items:end;margin-bottom:16px}
+.pl-toolbar{grid-template-columns:160px 1fr 130px}
+.history-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r)}
+.history-table-wrap table{min-width:900px}
+.history-table-wrap th,.history-table-wrap td{white-space:nowrap}
+.history-file{max-width:210px;overflow:hidden;text-overflow:ellipsis}
+.empty-state{border:1px solid var(--border);border-radius:var(--r);padding:24px;text-align:center;color:var(--muted);font-size:13px}
+.pl-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pl-form-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:end}
+.pl-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px}
+.pl-table-wrap table{min-width:940px}
+.pl-table-wrap th,.pl-table-wrap td{white-space:nowrap}
+.neg{color:#dc2626}
 .settings-box{border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px}
 .rate-big{font-size:28px;font-weight:700;color:var(--navy);margin:6px 0 2px}
 .rate-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700}
@@ -88,6 +101,13 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 .inv-summary{background:var(--surface);border-radius:var(--r);padding:12px 16px;margin-bottom:14px;font-size:13px}
 .inv-summary strong{color:var(--navy)}
 .inv-total-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0 0;border-top:1px solid var(--border);margin-top:8px;font-weight:700}
+@media (max-width:640px){
+  .header{padding:12px 16px}
+  .tabs{padding:0 16px}
+  .content{padding:16px}
+  .row2,.history-toolbar,.pl-toolbar,.pl-grid,.pl-form-grid{grid-template-columns:1fr}
+  .stat-bar{gap:14px}
+}
 </style>
 </head>
 <body>
@@ -104,6 +124,8 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
   <button class="tab active" onclick="tab('log')">Log leads</button>
   <button class="tab" onclick="tab('daily')">Daily view</button>
   <button class="tab" onclick="tab('weekly')">Weekly summary</button>
+  <button class="tab" onclick="tab('history')">Invoice history</button>
+  <button class="tab" onclick="tab('pl')">P&amp;L</button>
   <button class="tab" onclick="tab('settings')">Settings</button>
 </div>
 
@@ -157,6 +179,88 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     <div id="weekly-out"><div class="msg-info">Loading…</div></div>
   </div>
 
+  <!-- INVOICE HISTORY -->
+  <div class="pane" id="pane-history">
+    <div class="history-toolbar">
+      <div class="field" style="margin:0">
+        <label>Client</label>
+        <select id="hist-client" onchange="loadInvoiceHistory()"></select>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Status</label>
+        <select id="hist-status" onchange="loadInvoiceHistory()">
+          <option value="all">All invoices</option>
+          <option value="active">Active</option>
+          <option value="void">Void</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Payment</label>
+        <select id="hist-payment" onchange="loadInvoiceHistory()">
+          <option value="all">All payments</option>
+          <option value="paid">Paid</option>
+          <option value="unpaid">Unpaid</option>
+          <option value="no_payment_required">No payment required</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="btn" style="width:100%" onclick="refreshInvoiceHistoryFilters()">Refresh</button>
+      </div>
+    </div>
+    <div id="history-out"><div class="msg-info">Loading…</div></div>
+  </div>
+
+  <!-- P&L -->
+  <div class="pane" id="pane-pl">
+    <div class="history-toolbar pl-toolbar">
+      <div class="field" style="margin:0">
+        <label>Year</label>
+        <select id="pl-year" onchange="loadPLPage()"></select>
+      </div>
+      <div></div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="btn" style="width:100%" onclick="refreshPLYearFilter()">Refresh</button>
+      </div>
+    </div>
+
+    <div id="pl-summary"></div>
+
+    <div class="pl-grid">
+      <div class="settings-box">
+        <div class="sec-lbl">Weekly lead costs</div>
+        <div class="pl-form-grid" style="grid-template-columns:1fr 1fr">
+          <div class="field" style="margin:0"><label>Any date in the week</label><input type="date" id="pl-cost-week"></div>
+          <div class="field" style="margin:0"><label>Lead costs ($)</label><input type="number" id="pl-cost-amount" min="0" step="0.01" placeholder="0.00"></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label>Notes</label><input type="text" id="pl-cost-notes" placeholder="Supplier, campaign, source"></div>
+        <button class="btn btn-primary" onclick="savePLLeadCosts()">Save lead costs</button>
+        <div id="pl-cost-msg"></div>
+      </div>
+
+      <div class="settings-box">
+        <div class="sec-lbl">Expense</div>
+        <input type="hidden" id="pl-expense-id">
+        <div class="pl-form-grid" style="grid-template-columns:1fr 1fr">
+          <div class="field" style="margin:0"><label>Date</label><input type="date" id="pl-expense-date"></div>
+          <div class="field" style="margin:0"><label>Amount ($)</label><input type="number" id="pl-expense-amount" min="0" step="0.01" placeholder="0.00"></div>
+        </div>
+        <div class="pl-form-grid" style="grid-template-columns:1fr 1fr;margin-top:12px">
+          <div class="field" style="margin:0"><label>Category</label><input type="text" id="pl-expense-category" placeholder="Software / SaaS"></div>
+          <div class="field" style="margin:0"><label>Vendor / Service</label><input type="text" id="pl-expense-vendor" placeholder="Vendor"></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label>Billing cycle</label><input type="text" id="pl-expense-cycle" placeholder="Subscription"></div>
+        <div class="field"><label>Notes</label><input type="text" id="pl-expense-notes" placeholder="Description"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="savePLExpense()">Save expense</button>
+          <button class="btn" onclick="resetPLExpenseForm()">Clear</button>
+        </div>
+        <div id="pl-expense-msg"></div>
+      </div>
+    </div>
+
+    <div id="pl-out"><div class="msg-info">Loading…</div></div>
+  </div>
+
   <!-- SETTINGS -->
   <div class="pane" id="pane-settings">
 
@@ -195,7 +299,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
       <div class="row2" style="max-width:520px">
         <div class="field" style="margin:0">
           <label>Client</label>
-          <select id="set-void-client" onchange="loadInvoiceVoidEditor()" style="height:36px;border:1px solid var(--border);border-radius:var(--r);padding:0 10px;font-size:14px;color:var(--text);background:#fff;width:100%"></select>
+          <select id="set-void-client" onchange="loadInvoiceVoidEditor()"></select>
         </div>
         <div class="field" style="margin:0">
           <label>Any date in the week</label>
@@ -213,7 +317,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
       <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Update a client name or email across every saved entry.</p>
       <div class="field" style="max-width:400px">
         <label>Client</label>
-        <select id="set-client-select" onchange="loadClientEditor()" style="height:36px;border:1px solid var(--border);border-radius:var(--r);padding:0 10px;font-size:14px;color:var(--text);background:#fff;width:100%"></select>
+        <select id="set-client-select" onchange="loadClientEditor()"></select>
       </div>
       <div class="row2" style="max-width:520px">
         <div class="field" style="margin:0"><label>Name</label>
@@ -306,11 +410,15 @@ let _leads = [];
 let _settings = {default_rate:0.0015,invoice_counter:1};
 let _invoiceVoids = [];
 let _invoiceRecords = [];
+let _expenses = [];
+let _weeklyFinancials = [];
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 const LEAD_FIELDS = 'id,date,client,email,leads,rate,amount';
 const INVOICE_VOID_FIELDS = 'week_start,client,voided_at';
-const INVOICE_RECORD_FIELDS = 'week_start,client,invoice_num,checkout_session_id,checkout_url,pdf_filename,total_due,generated_at,voided_at';
+const INVOICE_RECORD_FIELDS = 'week_start,client,invoice_num,checkout_session_id,checkout_url,pdf_filename,total_due,payment_status,paid_at,generated_at,voided_at';
+const EXPENSE_FIELDS = 'id,category,vendor,expense_date,billing_cycle,notes,amount,created_at,updated_at';
+const WEEKLY_FINANCIAL_FIELDS = 'week_start,lead_costs,notes,updated_at';
 const DB = {
   client:null,
   workspaceId:'default',
@@ -318,8 +426,12 @@ const DB = {
   settingsTable:'jawnix_settings',
   invoiceVoidsTable:'jawnix_invoice_voids',
   invoiceRecordsTable:'jawnix_invoice_records',
+  expensesTable:'jawnix_expenses',
+  weeklyFinancialsTable:'jawnix_weekly_financials',
   invoiceVoidsAvailable:true,
   invoiceRecordsAvailable:true,
+  expensesAvailable:true,
+  weeklyFinancialsAvailable:true,
   init: () => {
     const cfg = window.JAWNIX_CONFIG || {};
     if(!cfg.supabaseUrl || !cfg.supabaseAnonKey){
@@ -334,6 +446,8 @@ const DB = {
     DB.settingsTable = cfg.settingsTable || DB.settingsTable;
     DB.invoiceVoidsTable = cfg.invoiceVoidsTable || DB.invoiceVoidsTable;
     DB.invoiceRecordsTable = cfg.invoiceRecordsTable || DB.invoiceRecordsTable;
+    DB.expensesTable = cfg.expensesTable || DB.expensesTable;
+    DB.weeklyFinancialsTable = cfg.weeklyFinancialsTable || DB.weeklyFinancialsTable;
   },
   fail: (error) => {
     if(error) throw new Error(error.message || 'Database request failed.');
@@ -366,8 +480,28 @@ const DB = {
     checkout_url:String(record.checkout_url || ''),
     pdf_filename:String(record.pdf_filename || ''),
     total_due:Number(record.total_due || 0),
+    payment_status:String(record.payment_status || 'unpaid'),
+    paid_at:record.paid_at || '',
     generated_at:record.generated_at || '',
     voided_at:record.voided_at || '',
+  }),
+  normalizeExpense: (expense) => ({
+    ...expense,
+    id:Number(expense.id),
+    category:String(expense.category || ''),
+    vendor:String(expense.vendor || ''),
+    expense_date:expense.expense_date,
+    billing_cycle:String(expense.billing_cycle || ''),
+    notes:String(expense.notes || ''),
+    amount:Number(expense.amount || 0),
+    created_at:expense.created_at || '',
+    updated_at:expense.updated_at || '',
+  }),
+  normalizeWeeklyFinancial: (row) => ({
+    week_start:row.week_start,
+    lead_costs:Number(row.lead_costs || 0),
+    notes:String(row.notes || ''),
+    updated_at:row.updated_at || '',
   }),
   nextLeadId: () => {
     const used = new Set(_leads.map(x=>String(x.id)));
@@ -411,13 +545,20 @@ const DB = {
       DB.fail(error);
       _settings = DB.normalizeSettings(data);
     }
-    await Promise.all([DB.loadInvoiceVoids(), DB.loadInvoiceRecords()]);
+    await Promise.all([
+      DB.loadInvoiceVoids(),
+      DB.loadInvoiceRecords(),
+      DB.loadExpenses(),
+      DB.loadWeeklyFinancials(),
+    ]);
     await DB.migrateLocalStorage();
   },
   leads: () => _leads.slice(),
   settings: () => ({..._settings}),
   invoiceVoids: () => _invoiceVoids.slice(),
   invoiceRecords: () => _invoiceRecords.slice(),
+  expenses: () => _expenses.slice(),
+  weeklyFinancials: () => _weeklyFinancials.slice(),
   isInvoiceVoided: (client,weekStart) => _invoiceVoids.some(v=>v.client===client && v.week_start===weekStart),
   loadInvoiceVoids: async () => {
     const {data,error}=await DB.client.from(DB.invoiceVoidsTable)
@@ -451,6 +592,39 @@ const DB = {
     }
     DB.invoiceRecordsAvailable=true;
     _invoiceRecords=(data||[]).map(DB.normalizeInvoiceRecord);
+  },
+  loadExpenses: async () => {
+    const {data,error}=await DB.client.from(DB.expensesTable)
+      .select(EXPENSE_FIELDS)
+      .eq('workspace_id',DB.workspaceId)
+      .order('expense_date',{ascending:false})
+      .order('id',{ascending:false});
+    if(error){
+      if(DB.missingOptionalTable(error)){
+        DB.expensesAvailable=false;
+        _expenses=[];
+        return;
+      }
+      DB.fail(error);
+    }
+    DB.expensesAvailable=true;
+    _expenses=(data||[]).map(DB.normalizeExpense);
+  },
+  loadWeeklyFinancials: async () => {
+    const {data,error}=await DB.client.from(DB.weeklyFinancialsTable)
+      .select(WEEKLY_FINANCIAL_FIELDS)
+      .eq('workspace_id',DB.workspaceId)
+      .order('week_start',{ascending:false});
+    if(error){
+      if(DB.missingOptionalTable(error)){
+        DB.weeklyFinancialsAvailable=false;
+        _weeklyFinancials=[];
+        return;
+      }
+      DB.fail(error);
+    }
+    DB.weeklyFinancialsAvailable=true;
+    _weeklyFinancials=(data||[]).map(DB.normalizeWeeklyFinancial);
   },
   createLead: async (payload) => {
     const {data,error}=await DB.client.from(DB.leadTable)
@@ -559,6 +733,24 @@ const DB = {
         else DB.fail(res.error);
       }
     }
+    if(DB.expensesAvailable){
+      const res=await DB.client.from(DB.expensesTable)
+        .delete()
+        .eq('workspace_id',DB.workspaceId);
+      if(res.error){
+        if(DB.missingOptionalTable(res.error)) DB.expensesAvailable=false;
+        else DB.fail(res.error);
+      }
+    }
+    if(DB.weeklyFinancialsAvailable){
+      const res=await DB.client.from(DB.weeklyFinancialsTable)
+        .delete()
+        .eq('workspace_id',DB.workspaceId);
+      if(res.error){
+        if(DB.missingOptionalTable(res.error)) DB.weeklyFinancialsAvailable=false;
+        else DB.fail(res.error);
+      }
+    }
     const {error}=await DB.client.from(DB.leadTable)
       .delete()
       .eq('workspace_id',DB.workspaceId);
@@ -566,6 +758,8 @@ const DB = {
     _leads = [];
     _invoiceVoids = [];
     _invoiceRecords = [];
+    _expenses = [];
+    _weeklyFinancials = [];
   },
   saveSettings: async (payload) => {
     const record = {
@@ -592,8 +786,11 @@ const DB = {
       checkout_url:String(payload.checkout_url||'').trim(),
       pdf_filename:String(payload.pdf_filename||'').trim(),
       total_due:parseFloat(payload.total_due||0),
+      payment_status:String(payload.payment_status||'unpaid').trim(),
+      paid_at:payload.paid_at || null,
       voided_at:null,
     };
+    if(!['paid','unpaid','no_payment_required'].includes(record.payment_status)) record.payment_status='unpaid';
     if(!record.week_start || !record.client || !record.invoice_num) return null;
     const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
       .upsert(record,{onConflict:'workspace_id,week_start,client,invoice_num'})
@@ -609,6 +806,104 @@ const DB = {
     const saved=DB.normalizeInvoiceRecord(data);
     _invoiceRecords=_invoiceRecords.filter(r=>!(r.week_start===saved.week_start && r.client===saved.client && r.invoice_num===saved.invoice_num));
     _invoiceRecords.unshift(saved);
+    return saved;
+  },
+  setInvoicePaid: async (record, paid) => {
+    if(!DB.invoiceRecordsAvailable) throw new Error('Invoice records table is missing. Run the updated supabase-schema.sql in Supabase.');
+    const update={
+      payment_status:paid ? 'paid' : 'unpaid',
+      paid_at:paid ? new Date().toISOString() : null,
+    };
+    const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
+      .update(update)
+      .eq('workspace_id',DB.workspaceId)
+      .eq('week_start',record.week_start)
+      .eq('client',record.client)
+      .eq('invoice_num',record.invoice_num)
+      .select(INVOICE_RECORD_FIELDS)
+      .single();
+    if(error){
+      if(DB.missingOptionalTable(error)) DB.invoiceRecordsAvailable=false;
+      DB.fail(error);
+    }
+    const saved=DB.normalizeInvoiceRecord(data);
+    const key=r=>`${r.week_start}||${r.client}||${r.invoice_num}`;
+    _invoiceRecords=_invoiceRecords.map(r=>key(r)===key(saved)?saved:r);
+    return saved;
+  },
+  saveExpense: async (payload) => {
+    if(!DB.expensesAvailable) throw new Error('Expenses table is missing. Run the updated supabase-schema.sql in Supabase.');
+    const amount=parseFloat(payload.amount);
+    const record={
+      category:String(payload.category||'').trim(),
+      vendor:String(payload.vendor||'').trim(),
+      expense_date:payload.expense_date,
+      billing_cycle:String(payload.billing_cycle||'').trim(),
+      notes:String(payload.notes||'').trim(),
+      amount,
+      updated_at:new Date().toISOString(),
+    };
+    if(!record.expense_date || Number.isNaN(amount) || amount<0) throw new Error('Enter an expense date and amount.');
+    let res;
+    if(payload.id){
+      res=await DB.client.from(DB.expensesTable)
+        .update(record)
+        .eq('workspace_id',DB.workspaceId)
+        .eq('id',payload.id)
+        .select(EXPENSE_FIELDS)
+        .single();
+    }else{
+      res=await DB.client.from(DB.expensesTable)
+        .insert({workspace_id:DB.workspaceId,...record})
+        .select(EXPENSE_FIELDS)
+        .single();
+    }
+    if(res.error){
+      if(DB.missingOptionalTable(res.error)) DB.expensesAvailable=false;
+      DB.fail(res.error);
+    }
+    const saved=DB.normalizeExpense(res.data);
+    _expenses=_expenses.filter(e=>String(e.id)!==String(saved.id));
+    _expenses.unshift(saved);
+    _expenses.sort((a,b)=>b.expense_date.localeCompare(a.expense_date)||b.id-a.id);
+    return saved;
+  },
+  deleteExpense: async (id) => {
+    if(!DB.expensesAvailable) throw new Error('Expenses table is missing. Run the updated supabase-schema.sql in Supabase.');
+    const {error}=await DB.client.from(DB.expensesTable)
+      .delete()
+      .eq('workspace_id',DB.workspaceId)
+      .eq('id',id);
+    if(error){
+      if(DB.missingOptionalTable(error)) DB.expensesAvailable=false;
+      DB.fail(error);
+    }
+    _expenses=_expenses.filter(e=>String(e.id)!==String(id));
+  },
+  saveWeeklyFinancial: async (payload) => {
+    if(!DB.weeklyFinancialsAvailable) throw new Error('Weekly financials table is missing. Run the updated supabase-schema.sql in Supabase.');
+    const weekStart=payload.week_start;
+    const leadCosts=parseFloat(payload.lead_costs || 0);
+    if(!weekStart || Number.isNaN(leadCosts) || leadCosts<0) throw new Error('Enter a week and lead costs.');
+    const record={
+      workspace_id:DB.workspaceId,
+      week_start:weekStart,
+      lead_costs:leadCosts,
+      notes:String(payload.notes||'').trim(),
+      updated_at:new Date().toISOString(),
+    };
+    const {data,error}=await DB.client.from(DB.weeklyFinancialsTable)
+      .upsert(record,{onConflict:'workspace_id,week_start'})
+      .select(WEEKLY_FINANCIAL_FIELDS)
+      .single();
+    if(error){
+      if(DB.missingOptionalTable(error)) DB.weeklyFinancialsAvailable=false;
+      DB.fail(error);
+    }
+    const saved=DB.normalizeWeeklyFinancial(data);
+    _weeklyFinancials=_weeklyFinancials.filter(r=>r.week_start!==saved.week_start);
+    _weeklyFinancials.unshift(saved);
+    _weeklyFinancials.sort((a,b)=>b.week_start.localeCompare(a.week_start));
     return saved;
   },
   voidInvoice: async (client,weekStart) => {
@@ -791,18 +1086,44 @@ async function updateClientDetails(oldName,newName,newEmail){
   return DB.updateClient(oldName,newName,newEmail);
 }
 
+async function setInvoicePaid(record,paid){
+  return DB.setInvoicePaid(record,paid);
+}
+
+async function saveExpense(payload){
+  return DB.saveExpense(payload);
+}
+
+async function deleteExpense(id){
+  return DB.deleteExpense(id);
+}
+
+async function saveWeeklyFinancial(payload){
+  return DB.saveWeeklyFinancial(payload);
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function today(){ return localDate(new Date()); }
 function localDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function fmtD(s){ return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function fmtDT(s){
+  if(!s) return '';
+  const d=new Date(s);
+  if(Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+}
+function moneyFmt(v){ return '$'+Number(v||0).toFixed(2); }
+function pctFmt(v){ return Number.isFinite(v) ? (v*100).toFixed(1)+'%' : '0.0%'; }
 function fmtRate(r){ return parseFloat(r).toFixed(4); }
 function getSun(s){ const d=new Date(s+'T12:00:00'); d.setDate(d.getDate()-d.getDay()); return localDate(d); }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/'/g,'&#39;'); }
-function reloadActive(){ if(activeTab==='daily')loadDaily(); if(activeTab==='weekly')loadWeekly(); }
+function reloadActive(){ if(activeTab==='daily')loadDaily(); if(activeTab==='weekly')loadWeekly(); if(activeTab==='history')loadInvoiceHistory(); if(activeTab==='pl')loadPLPage(); }
 function refreshViews(){
   refreshToday(document.getElementById('log-date').value || today());
   if(activeTab==='daily')loadDaily();
   if(activeTab==='weekly')loadWeekly();
+  if(activeTab==='history')loadInvoiceHistory();
+  if(activeTab==='pl')loadPLPage();
 }
 
 function nextInvNum(){
@@ -818,7 +1139,7 @@ async function bumpInvNum(){
 async function init(){
   const t=today();
   document.getElementById('hdr-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-  ['log-date','daily-date','weekly-date','set-week','set-void-week'].forEach(id=>document.getElementById(id).value=t);
+  ['log-date','daily-date','weekly-date','set-week','set-void-week','pl-cost-week','pl-expense-date'].forEach(id=>document.getElementById(id).value=t);
   try{
     await DB.load();
   }catch(err){
@@ -829,7 +1150,7 @@ async function init(){
   defaultRate=parseFloat(s.default_rate)||0.0015;
   document.getElementById('log-rate').value=defaultRate;
   document.getElementById('set-apply-rate').value=defaultRate;
-  refreshClients(); refreshToday(t); calcAmt(); loadSettingsTab();
+  refreshClients(); refreshToday(t); calcAmt(); refreshInvoiceHistoryFilters(); refreshPLYearFilter(); loadSettingsTab();
 }
 
 function refreshClients(){
@@ -841,7 +1162,7 @@ function refreshClients(){
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-const TAB_NAMES=['log','daily','weekly','settings'];
+const TAB_NAMES=['log','daily','weekly','history','pl','settings'];
 function tab(name){
   activeTab=name;
   TAB_NAMES.forEach((t,i)=>{
@@ -850,6 +1171,8 @@ function tab(name){
   });
   if(name==='daily')    loadDaily();
   if(name==='weekly')   loadWeekly();
+  if(name==='history')  loadInvoiceHistory();
+  if(name==='pl')       loadPLPage();
   if(name==='settings') loadSettingsTab();
 }
 
@@ -1046,6 +1369,438 @@ function changeWeek(offset){
   loadWeekly();
 }
 
+// ── Invoice history ──────────────────────────────────────────────────────────
+function invoiceWeekLabel(weekStart){
+  if(!weekStart) return '';
+  const start=new Date(weekStart+'T12:00:00');
+  const end=new Date(weekStart+'T12:00:00');
+  end.setDate(end.getDate()+6);
+  return start.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' - '+
+    end.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+
+function invoiceRecordStatus(record){
+  return record.voided_at ? 'void' : 'active';
+}
+
+function invoiceStatusBadge(record){
+  return invoiceRecordStatus(record)==='void'
+    ? '<span class="badge badge-void">Void</span>'
+    : '<span class="badge badge-ok">Active</span>';
+}
+
+function invoicePaymentStatus(record){
+  return ['paid','unpaid','no_payment_required'].includes(record.payment_status) ? record.payment_status : 'unpaid';
+}
+
+function invoicePaymentBadge(record){
+  const status=invoicePaymentStatus(record);
+  if(status==='paid') return '<span class="badge badge-ok">Paid</span>';
+  if(status==='no_payment_required') return '<span class="badge badge-ok">No payment required</span>';
+  return '<span class="badge badge-void">Unpaid</span>';
+}
+
+function safeCheckoutUrl(value){
+  try{
+    const url=new URL(String(value || ''), window.location.href);
+    return ['http:','https:'].includes(url.protocol) ? url.href : '';
+  }catch(_err){
+    return '';
+  }
+}
+
+function refreshInvoiceHistoryFilters(selectedClient){
+  const select=document.getElementById('hist-client');
+  if(!select)return;
+  const records=DB.invoiceRecords();
+  const clients=[...new Set(records.map(r=>r.client).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const current=selectedClient || select.value || 'all';
+  select.innerHTML='<option value="all">All clients</option>'+clients.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  select.value=clients.includes(current) ? current : 'all';
+  loadInvoiceHistory();
+}
+
+function loadInvoiceHistory(){
+  const el=document.getElementById('history-out');
+  if(!el)return;
+  if(!DB.invoiceRecordsAvailable){
+    el.innerHTML='<div class="msg-info">Invoice records table is missing. Run the updated Supabase schema to enable invoice history.</div>';
+    return;
+  }
+  const client=document.getElementById('hist-client')?.value || 'all';
+  const status=document.getElementById('hist-status')?.value || 'all';
+  const payment=document.getElementById('hist-payment')?.value || 'all';
+  let records=DB.invoiceRecords();
+  if(client!=='all') records=records.filter(r=>r.client===client);
+  if(status!=='all') records=records.filter(r=>invoiceRecordStatus(r)===status);
+  if(payment!=='all') records=records.filter(r=>invoicePaymentStatus(r)===payment);
+  records=records.slice().sort((a,b)=>String(b.generated_at).localeCompare(String(a.generated_at)) || String(b.week_start).localeCompare(String(a.week_start)));
+
+  if(!records.length){
+    el.innerHTML='<div class="empty-state">No invoice records match the current filters.</div>';
+    return;
+  }
+
+  const paid=records.filter(r=>['paid','no_payment_required'].includes(invoicePaymentStatus(r)));
+  const unpaid=records.filter(r=>invoicePaymentStatus(r)==='unpaid' && !r.voided_at);
+  const total=records.reduce((s,r)=>s+r.total_due,0);
+  const unpaidTotal=unpaid.reduce((s,r)=>s+r.total_due,0);
+  el.innerHTML=`<div class="stat-bar">
+    <div class="stat"><div class="stat-lbl">Invoices</div><div class="stat-val">${records.length}</div></div>
+    <div class="stat"><div class="stat-lbl">Paid</div><div class="stat-val">${paid.length}</div></div>
+    <div class="stat"><div class="stat-lbl">Unpaid</div><div class="stat-val">${unpaid.length}</div></div>
+    <div class="stat"><div class="stat-lbl">Unpaid total</div><div class="stat-val">$${unpaidTotal.toFixed(2)}</div></div>
+    <div class="stat"><div class="stat-lbl">Filtered total</div><div class="stat-val">$${total.toFixed(2)}</div></div>
+  </div>
+  <div class="history-table-wrap">
+    <table>
+      <thead><tr>
+        <th>Invoice</th><th>Client</th><th>Week</th><th>Generated</th>
+        <th class="td-r">Total</th><th>Status</th><th>Payment</th><th>Paid</th><th>Stripe</th><th>Toggle</th><th>PDF</th>
+      </tr></thead>
+      <tbody>${records.map((r,i)=>`<tr class="${r.voided_at?'muted-row':''}">
+        <td>${esc(r.invoice_num)}</td>
+        <td>${esc(r.client)}</td>
+        <td>${esc(invoiceWeekLabel(r.week_start))}</td>
+        <td>${esc(fmtDT(r.generated_at))}</td>
+        <td class="td-r">$${r.total_due.toFixed(2)}</td>
+        <td>${invoiceStatusBadge(r)}</td>
+        <td>${invoicePaymentBadge(r)}</td>
+        <td>${esc(fmtDT(r.paid_at) || '-')}</td>
+        <td>${safeCheckoutUrl(r.checkout_url) && !r.voided_at && invoicePaymentStatus(r)==='unpaid' ? `<a class="btn btn-sm btn-pay btn-pay-clean" href="${esc(safeCheckoutUrl(r.checkout_url))}" target="_blank" rel="noopener">Pay</a>` : '<span style="color:var(--muted)">-</span>'}</td>
+        <td>${r.voided_at ? '<span style="color:var(--muted)">-</span>' : `<button class="btn btn-sm ${invoicePaymentStatus(r)==='paid'?'':'btn-primary'}" onclick="toggleInvoicePaid(${i})">${invoicePaymentStatus(r)==='paid'?'Mark unpaid':'Mark paid'}</button>`}</td>
+        <td class="history-file" title="${esc(r.pdf_filename)}">${esc(r.pdf_filename || '-')}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>`;
+  window._historyRecords=records;
+}
+
+async function toggleInvoicePaid(index){
+  const record=window._historyRecords?.[index];
+  if(!record || record.voided_at) return;
+  const markPaid=invoicePaymentStatus(record)!=='paid';
+  try{
+    await setInvoicePaid(record,markPaid);
+    refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value || 'all');
+    loadPLPage();
+  }catch(err){
+    alert('Payment status update failed: '+err.message);
+  }
+}
+
+// ── P&L ──────────────────────────────────────────────────────────────────────
+function paidInvoiceRecords(){
+  return DB.invoiceRecords().filter(r=>!r.voided_at && ['paid','no_payment_required'].includes(invoicePaymentStatus(r)));
+}
+
+function weekEnd(weekStart){
+  const d=new Date(weekStart+'T12:00:00');
+  d.setDate(d.getDate()+6);
+  return localDate(d);
+}
+
+function recordYear(dateValue){
+  const d=new Date(String(dateValue).slice(0,10)+'T12:00:00');
+  return Number.isNaN(d.getTime()) ? null : d.getFullYear();
+}
+
+function refreshPLYearFilter(selectedYear){
+  const select=document.getElementById('pl-year');
+  if(!select)return;
+  const years=new Set([new Date().getFullYear()]);
+  paidInvoiceRecords().forEach(r=>{const y=recordYear(r.week_start); if(y) years.add(y);});
+  DB.expenses().forEach(e=>{const y=recordYear(e.expense_date); if(y) years.add(y);});
+  DB.weeklyFinancials().forEach(r=>{const y=recordYear(r.week_start); if(y) years.add(y);});
+  const sorted=[...years].sort((a,b)=>b-a);
+  const current=Number(selectedYear || select.value || new Date().getFullYear());
+  select.innerHTML=sorted.map(y=>`<option value="${y}">${y}</option>`).join('');
+  select.value=sorted.includes(current) ? String(current) : String(sorted[0]);
+  loadPLPage();
+}
+
+function weeklyFinancialFor(weekStart){
+  return DB.weeklyFinancials().find(r=>r.week_start===weekStart) || {week_start:weekStart,lead_costs:0,notes:''};
+}
+
+function weekKeySetForYear(year){
+  const weeks=new Set();
+  paidInvoiceRecords().forEach(r=>{if(recordYear(r.week_start)===year) weeks.add(r.week_start);});
+  DB.weeklyFinancials().forEach(r=>{if(recordYear(r.week_start)===year) weeks.add(r.week_start);});
+  DB.expenses().forEach(e=>{if(recordYear(e.expense_date)===year) weeks.add(getSun(e.expense_date));});
+  return [...weeks].sort();
+}
+
+function expenseSumForWeek(weekStart){
+  const end=weekEnd(weekStart);
+  return DB.expenses()
+    .filter(e=>e.expense_date>=weekStart && e.expense_date<=end)
+    .reduce((s,e)=>s+e.amount,0);
+}
+
+function leadsSoldForPaidWeek(weekStart){
+  const end=weekEnd(weekStart);
+  const clients=new Set(paidInvoiceRecords().filter(r=>r.week_start===weekStart).map(r=>r.client));
+  if(!clients.size) return 0;
+  return DB.leads()
+    .filter(e=>e.date>=weekStart && e.date<=end && clients.has(e.client))
+    .reduce((s,e)=>s+e.leads,0);
+}
+
+function weeklyPLRows(year){
+  return weekKeySetForYear(year).map((weekStart,idx)=>{
+    const revenue=paidInvoiceRecords()
+      .filter(r=>r.week_start===weekStart)
+      .reduce((s,r)=>s+r.total_due,0);
+    const leadCosts=weeklyFinancialFor(weekStart).lead_costs;
+    const expenses=expenseSumForWeek(weekStart);
+    const leads=leadsSoldForPaidWeek(weekStart);
+    const grossProfit=revenue-leadCosts;
+    const netProfit=grossProfit-expenses;
+    return {
+      week_num:idx+1,
+      week_start:weekStart,
+      week_end:weekEnd(weekStart),
+      leads,
+      price_per_lead:leads ? revenue/leads : 0,
+      revenue,
+      lead_costs:leadCosts,
+      gross_profit:grossProfit,
+      expenses,
+      net_profit:netProfit,
+      margin:revenue ? netProfit/revenue : 0,
+      notes:weeklyFinancialFor(weekStart).notes,
+    };
+  });
+}
+
+function monthlyPLRows(year){
+  const rows=[];
+  for(let month=0; month<12; month++){
+    const invoices=paidInvoiceRecords().filter(r=>{
+      const d=new Date(r.week_start+'T12:00:00');
+      return d.getFullYear()===year && d.getMonth()===month;
+    });
+    const weekRows=weeklyPLRows(year).filter(r=>{
+      const d=new Date(r.week_start+'T12:00:00');
+      return d.getFullYear()===year && d.getMonth()===month;
+    });
+    const expenses=DB.expenses().filter(e=>{
+      const d=new Date(e.expense_date+'T12:00:00');
+      return d.getFullYear()===year && d.getMonth()===month;
+    }).reduce((s,e)=>s+e.amount,0);
+    const revenue=invoices.reduce((s,r)=>s+r.total_due,0);
+    const leadCosts=weekRows.reduce((s,r)=>s+r.lead_costs,0);
+    const grossProfit=revenue-leadCosts;
+    const netProfit=grossProfit-expenses;
+    rows.push({
+      month:new Date(year,month,1).toLocaleDateString('en-US',{month:'short'}),
+      revenue,
+      lead_costs:leadCosts,
+      gross_profit:grossProfit,
+      expenses,
+      net_profit:netProfit,
+      margin:revenue ? netProfit/revenue : 0,
+      weeks:weekRows.length,
+    });
+  }
+  return rows;
+}
+
+function transactionRows(year){
+  const rows=[];
+  paidInvoiceRecords().forEach(r=>{
+    const date=(r.paid_at || r.generated_at || r.week_start).slice(0,10);
+    if(recordYear(date)!==year) return;
+    rows.push({
+      date,
+      type:'Income',
+      description:`${r.invoice_num} - ${r.client}`,
+      amount:r.total_due,
+      source:'Paid invoice',
+    });
+  });
+  DB.expenses().forEach(e=>{
+    if(recordYear(e.expense_date)!==year) return;
+    rows.push({
+      date:e.expense_date,
+      type:'Expense',
+      description:[e.vendor,e.category].filter(Boolean).join(' - ') || 'Expense',
+      amount:-e.amount,
+      source:e.billing_cycle || 'Expense',
+    });
+  });
+  DB.weeklyFinancials().forEach(r=>{
+    if(recordYear(r.week_start)!==year || !r.lead_costs) return;
+    rows.push({
+      date:r.week_start,
+      type:'Lead costs',
+      description:r.notes || `Week of ${fmtD(r.week_start)}`,
+      amount:-r.lead_costs,
+      source:'Lead costs',
+    });
+  });
+  return rows.sort((a,b)=>b.date.localeCompare(a.date)||a.type.localeCompare(b.type));
+}
+
+function loadPLPage(){
+  const out=document.getElementById('pl-out');
+  const summary=document.getElementById('pl-summary');
+  if(!out || !summary)return;
+  const missing=[];
+  if(!DB.invoiceRecordsAvailable) missing.push('invoice records');
+  if(!DB.expensesAvailable) missing.push('expenses');
+  if(!DB.weeklyFinancialsAvailable) missing.push('weekly financials');
+  const year=Number(document.getElementById('pl-year')?.value || new Date().getFullYear());
+  const weekly=weeklyPLRows(year);
+  const monthly=monthlyPLRows(year);
+  const transactions=transactionRows(year);
+  const totals=monthly.reduce((acc,r)=>{
+    acc.revenue+=r.revenue; acc.lead_costs+=r.lead_costs; acc.expenses+=r.expenses;
+    acc.gross_profit+=r.gross_profit; acc.net_profit+=r.net_profit;
+    return acc;
+  },{revenue:0,lead_costs:0,expenses:0,gross_profit:0,net_profit:0});
+  summary.innerHTML=`${missing.length ? `<div class="msg-info">Missing ${esc(missing.join(', '))} table${missing.length===1?'':'s'}. Run the updated Supabase schema to enable all P&L features.</div>` : ''}
+    <div class="stat-bar">
+      <div class="stat"><div class="stat-lbl">Gross revenue</div><div class="stat-val">${moneyFmt(totals.revenue)}</div></div>
+      <div class="stat"><div class="stat-lbl">Lead costs</div><div class="stat-val">${moneyFmt(totals.lead_costs)}</div></div>
+      <div class="stat"><div class="stat-lbl">Gross profit</div><div class="stat-val">${moneyFmt(totals.gross_profit)}</div></div>
+      <div class="stat"><div class="stat-lbl">Expenses</div><div class="stat-val">${moneyFmt(totals.expenses)}</div></div>
+      <div class="stat"><div class="stat-lbl">Net profit</div><div class="stat-val">${moneyFmt(totals.net_profit)}</div></div>
+      <div class="stat"><div class="stat-lbl">Net margin</div><div class="stat-val">${pctFmt(totals.revenue ? totals.net_profit/totals.revenue : 0)}</div></div>
+    </div>`;
+
+  out.innerHTML=`
+    <div class="sec-lbl">Monthly summary</div>
+    <div class="pl-table-wrap"><table>
+      <thead><tr><th>Month</th><th class="td-r">Gross revenue</th><th class="td-r">Lead costs</th><th class="td-r">Gross profit</th><th class="td-r">Expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th><th class="td-r">Weeks</th></tr></thead>
+      <tbody>${monthly.map(r=>`<tr>
+        <td>${r.month}</td><td class="td-r">${moneyFmt(r.revenue)}</td><td class="td-r">${moneyFmt(r.lead_costs)}</td>
+        <td class="td-r">${moneyFmt(r.gross_profit)}</td><td class="td-r">${moneyFmt(r.expenses)}</td>
+        <td class="td-r ${r.net_profit<0?'neg':''}">${moneyFmt(r.net_profit)}</td><td class="td-r">${pctFmt(r.margin)}</td><td class="td-r">${r.weeks}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+
+    <div class="sec-lbl">Weekly P&amp;L</div>
+    ${weekly.length ? `<div class="pl-table-wrap"><table>
+      <thead><tr><th>Wk #</th><th>Week start</th><th>Week end</th><th class="td-r">Leads sold</th><th class="td-r">Price / lead</th><th class="td-r">Gross revenue</th><th class="td-r">Lead costs</th><th class="td-r">Gross profit</th><th class="td-r">Expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th><th></th></tr></thead>
+      <tbody>${weekly.map(r=>`<tr>
+        <td>${r.week_num}</td><td>${fmtD(r.week_start)}</td><td>${fmtD(r.week_end)}</td>
+        <td class="td-r">${r.leads.toLocaleString()}</td><td class="td-r">$${r.price_per_lead.toFixed(4)}</td>
+        <td class="td-r">${moneyFmt(r.revenue)}</td><td class="td-r">${moneyFmt(r.lead_costs)}</td>
+        <td class="td-r">${moneyFmt(r.gross_profit)}</td><td class="td-r">${moneyFmt(r.expenses)}</td>
+        <td class="td-r ${r.net_profit<0?'neg':''}">${moneyFmt(r.net_profit)}</td><td class="td-r">${pctFmt(r.margin)}</td>
+        <td><button class="btn btn-sm" onclick="editLeadCosts('${r.week_start}')">Costs</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<div class="empty-state">No paid revenue, expenses, or lead costs for this year.</div>'}
+
+    <div class="sec-lbl">Transaction history</div>
+    ${transactions.length ? `<div class="pl-table-wrap"><table>
+      <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Source</th><th class="td-r">Amount</th></tr></thead>
+      <tbody>${transactions.map(r=>`<tr>
+        <td>${fmtD(r.date)}</td><td>${esc(r.type)}</td><td>${esc(r.description)}</td><td>${esc(r.source)}</td>
+        <td class="td-r ${r.amount<0?'neg':''}">${r.amount<0?'-':''}${moneyFmt(Math.abs(r.amount))}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<div class="empty-state">No transactions for this year.</div>'}
+
+    <div class="sec-lbl">Expense log</div>
+    ${renderExpenseLog(year)}
+  `;
+}
+
+function renderExpenseLog(year){
+  const rows=DB.expenses().filter(e=>recordYear(e.expense_date)===year).sort((a,b)=>b.expense_date.localeCompare(a.expense_date)||b.id-a.id);
+  window._expenseRows=rows;
+  if(!rows.length) return '<div class="empty-state">No expenses for this year.</div>';
+  return `<div class="pl-table-wrap"><table>
+    <thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Billing cycle</th><th>Notes</th><th class="td-r">Amount</th><th></th></tr></thead>
+    <tbody>${rows.map((e,i)=>`<tr>
+      <td>${fmtD(e.expense_date)}</td><td>${esc(e.category || '-')}</td><td>${esc(e.vendor || '-')}</td>
+      <td>${esc(e.billing_cycle || '-')}</td><td>${esc(e.notes || '-')}</td><td class="td-r">${moneyFmt(e.amount)}</td>
+      <td style="white-space:nowrap"><button class="btn btn-sm" onclick="editExpense(${i})">Edit</button><button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteExpenseRow(${e.id})">Delete</button></td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function editLeadCosts(weekStart){
+  const row=weeklyFinancialFor(weekStart);
+  document.getElementById('pl-cost-week').value=weekStart;
+  document.getElementById('pl-cost-amount').value=row.lead_costs || '';
+  document.getElementById('pl-cost-notes').value=row.notes || '';
+  document.getElementById('pl-cost-week').scrollIntoView({block:'center'});
+}
+
+async function savePLLeadCosts(){
+  const msg=document.getElementById('pl-cost-msg');
+  try{
+    const weekStart=getSun(document.getElementById('pl-cost-week').value || today());
+    const saved=await saveWeeklyFinancial({
+      week_start:weekStart,
+      lead_costs:document.getElementById('pl-cost-amount').value || 0,
+      notes:document.getElementById('pl-cost-notes').value,
+    });
+    msg.innerHTML=`<div class="msg-ok">Saved lead costs for week of ${fmtD(saved.week_start)}.</div>`;
+    refreshPLYearFilter(recordYear(saved.week_start));
+    setTimeout(()=>msg.innerHTML='',2500);
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Save failed: ${esc(err.message)}</div>`;
+  }
+}
+
+function resetPLExpenseForm(){
+  document.getElementById('pl-expense-id').value='';
+  document.getElementById('pl-expense-date').value=today();
+  document.getElementById('pl-expense-amount').value='';
+  document.getElementById('pl-expense-category').value='';
+  document.getElementById('pl-expense-vendor').value='';
+  document.getElementById('pl-expense-cycle').value='';
+  document.getElementById('pl-expense-notes').value='';
+}
+
+function editExpense(index){
+  const e=window._expenseRows?.[index];
+  if(!e)return;
+  document.getElementById('pl-expense-id').value=e.id;
+  document.getElementById('pl-expense-date').value=e.expense_date;
+  document.getElementById('pl-expense-amount').value=e.amount;
+  document.getElementById('pl-expense-category').value=e.category;
+  document.getElementById('pl-expense-vendor').value=e.vendor;
+  document.getElementById('pl-expense-cycle').value=e.billing_cycle;
+  document.getElementById('pl-expense-notes').value=e.notes;
+  document.getElementById('pl-expense-id').scrollIntoView({block:'center'});
+}
+
+async function savePLExpense(){
+  const msg=document.getElementById('pl-expense-msg');
+  try{
+    const saved=await saveExpense({
+      id:document.getElementById('pl-expense-id').value,
+      expense_date:document.getElementById('pl-expense-date').value,
+      amount:document.getElementById('pl-expense-amount').value,
+      category:document.getElementById('pl-expense-category').value,
+      vendor:document.getElementById('pl-expense-vendor').value,
+      billing_cycle:document.getElementById('pl-expense-cycle').value,
+      notes:document.getElementById('pl-expense-notes').value,
+    });
+    msg.innerHTML=`<div class="msg-ok">Saved expense for ${fmtD(saved.expense_date)}.</div>`;
+    resetPLExpenseForm();
+    refreshPLYearFilter(recordYear(saved.expense_date));
+    setTimeout(()=>msg.innerHTML='',2500);
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Save failed: ${esc(err.message)}</div>`;
+  }
+}
+
+async function deleteExpenseRow(id){
+  if(!confirm('Delete this expense?'))return;
+  try{
+    await deleteExpense(id);
+    loadPLPage();
+  }catch(err){
+    alert('Delete failed: '+err.message);
+  }
+}
+
 // ── Invoice modal ─────────────────────────────────────────────────────────────
 function openInvModal(clientIdx){
   const c    = window._weeklyClients[clientIdx];
@@ -1143,7 +1898,9 @@ async function generateInvoicePDF(){
       checkout_url:checkoutUrl || '',
       pdf_filename:pdfFilename,
       total_due:payload.totalDue,
+      payment_status:'unpaid',
     });
+    refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value || 'all');
     await bumpInvNum();
     document.getElementById('m-inv-num').value = nextInvNum();
     rebuildInvJSON();
@@ -1267,11 +2024,12 @@ function loadInvoiceVoidEditor(){
     list.innerHTML='<div class="msg-info">No generated invoice records for this client/week yet.</div>';
     return;
   }
-  list.innerHTML=`<table><thead><tr><th>Invoice</th><th>Generated</th><th class="td-r">Total</th><th>Status</th></tr></thead>
+  list.innerHTML=`<table><thead><tr><th>Invoice</th><th>Generated</th><th class="td-r">Total</th><th>Payment</th><th>Status</th></tr></thead>
     <tbody>${records.map(r=>`<tr>
       <td>${esc(r.invoice_num)}</td>
       <td>${esc(r.generated_at ? new Date(r.generated_at).toLocaleDateString('en-US') : '')}</td>
       <td class="td-r">$${r.total_due.toFixed(2)}</td>
+      <td>${invoicePaymentBadge(r)}</td>
       <td>${r.voided_at?'<span class="badge badge-void">Void</span>':'<span class="badge badge-ok">Active</span>'}</td>
     </tr>`).join('')}</tbody></table>`;
 }
@@ -1308,6 +2066,7 @@ async function toggleInvoiceVoid(){
     const result=await DB.markInvoiceRecordsVoided(client,weekStart);
     msg.innerHTML=`<div class="msg-ok">${result.updated || activeRecords.length} invoice record${(result.updated || activeRecords.length)===1?'':'s'} voided${sessions.length ? ` and ${sessions.length} Stripe session${sessions.length===1?'':'s'} expired` : ''}. The client remains available for a regenerated weekly invoice.</div>`;
     loadInvoiceVoidEditor();
+    refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value || 'all');
     refreshViews();
   }catch(err){
     msg.innerHTML=`<div class="msg-err">Void update failed: ${esc(err.message)}</div>`;
@@ -1327,6 +2086,7 @@ async function saveClientDetails(){
     refreshClients();
     refreshClientEditor(result.client);
     refreshInvoiceVoidEditor(result.client);
+    refreshInvoiceHistoryFilters(result.client);
     refreshViews();
     msg.innerHTML=`<div class="msg-ok">Updated ${result.updated} entries for ${esc(result.client)}.</div>`;
     setTimeout(()=>msg.innerHTML='',3000);
@@ -1392,6 +2152,8 @@ function importJSON(input){
       refreshClients();
       refreshClientEditor();
       refreshInvoiceVoidEditor();
+      refreshInvoiceHistoryFilters();
+      refreshPLYearFilter();
       msg.innerHTML=`<div class="msg-ok">Imported ${result.imported} new entries.</div>`;
       input.value='';
     }catch(err){msg.innerHTML=`<div class="msg-err">Import failed: ${esc(err.message)}</div>`;}
@@ -1405,13 +2167,15 @@ function exportJSON(){
 }
 
 async function clearData(){
-  if(!confirm('Delete ALL lead entries, invoice voids, and invoice records? This cannot be undone.'))return;
+  if(!confirm('Delete ALL lead entries, invoice state, expenses, and weekly financials? This cannot be undone.'))return;
   try{
     await DB.clearLeads();
     refreshClients();
     refreshClientEditor();
     refreshInvoiceVoidEditor();
-    document.getElementById('set-data-msg').innerHTML='<div class="msg-ok">All entries and invoice state cleared.</div>';
+    refreshInvoiceHistoryFilters();
+    refreshPLYearFilter();
+    document.getElementById('set-data-msg').innerHTML='<div class="msg-ok">All entries, invoice state, and finance data cleared.</div>';
     reloadActive();
   }catch(err){
     document.getElementById('set-data-msg').innerHTML=`<div class="msg-err">Clear failed: ${esc(err.message)}</div>`;

@@ -6,4 +6,6 @@ window.JAWNIX_CONFIG = {
   settingsTable: 'jawnix_settings',
   invoiceVoidsTable: 'jawnix_invoice_voids',
   invoiceRecordsTable: 'jawnix_invoice_records',
+  expensesTable: 'jawnix_expenses',
+  weeklyFinancialsTable: 'jawnix_weekly_financials',
 };
