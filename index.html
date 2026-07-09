@@ -1793,13 +1793,16 @@ function refreshPLYearFilter(selectedYear){
   loadPLPage();
 }
 
-function weekKeySetForYear(year,endDate,invoiceRecords){
+function weekKeySetForYear(year,endDate,invoiceRecords,options={}){
   const weeks=new Set();
   const yearStart=startOfYear(year);
   const yearEnd=minDate(endDate,endOfYear(year));
   if(!yearEnd || yearEnd<yearStart) return [];
   invoiceRecordsThrough(invoiceRecords || paidInvoiceRecords(),yearEnd).forEach(r=>{
     if(r.week_start>=yearStart && r.week_start<=yearEnd) weeks.add(r.week_start);
+  });
+  (options.leadWeeks || []).forEach(weekStart=>{
+    if(weekStart>=yearStart && weekStart<=yearEnd) weeks.add(weekStart);
   });
   expenseOccurrencesForRange(yearStart,yearEnd).forEach(e=>weeks.add(getSun(e.occurrence_date)));
   DB.miscIncome().forEach(e=>{if(e.income_date>=yearStart && e.income_date<=yearEnd) weeks.add(getSun(e.income_date));});
@@ -1828,23 +1831,35 @@ function leadsSoldForInvoiceWeek(weekStart,invoiceRecords,endDate){
     .reduce((s,e)=>s+e.leads,0);
 }
 
+function billableLeadTotalsForWeek(weekStart,endDate,excludedClients=new Set()){
+  const end=minDate(weekEnd(weekStart),endDate || weekEnd(weekStart));
+  return DB.leads()
+    .filter(e=>e.date>=weekStart && e.date<=end && !excludedClients.has(e.client) && !DB.isInvoiceVoided(e.client,weekStart))
+    .reduce((acc,e)=>{
+      acc.leads+=e.leads;
+      acc.amount+=e.amount;
+      return acc;
+    },{leads:0,amount:0});
+}
+
 function weeklyPLRows(year,options={}){
   const endDate=Object.prototype.hasOwnProperty.call(options,'endDate') ? options.endDate : endOfYear(year);
   const assumePaid=!!options.assumePaid;
   const records=invoiceRecordsThrough(options.invoiceRecords || paidInvoiceRecords(),minDate(endDate,endOfYear(year)));
-  return weekKeySetForYear(year,endDate,records).map((weekStart,idx)=>{
+  const leadRevenueWeeks=new Set(options.leadRevenueWeeks || []);
+  return weekKeySetForYear(year,endDate,records,{leadWeeks:leadRevenueWeeks}).map((weekStart,idx)=>{
     const periodEnd=minDate(weekEnd(weekStart),endDate);
-    const invoiceRevenue=records
-      .filter(r=>r.week_start===weekStart)
-      .reduce((s,r)=>s+r.total_due,0);
+    const weekRecords=records.filter(r=>r.week_start===weekStart);
+    const invoicedClients=new Set(weekRecords.map(r=>r.client));
+    const leadProjection=leadRevenueWeeks.has(weekStart) ? billableLeadTotalsForWeek(weekStart,periodEnd,invoicedClients) : null;
+    const invoiceRevenue=weekRecords.reduce((s,r)=>s+r.total_due,0)+(leadProjection ? Math.round(leadProjection.amount*100)/100 : 0);
     const miscRevenue=miscIncomeSumForWeek(weekStart,periodEnd);
     const revenue=invoiceRevenue+miscRevenue;
     const operatingExpenses=expenseSumForWeek(weekStart,periodEnd);
-    const stripeFees=records
-      .filter(r=>r.week_start===weekStart)
+    const stripeFees=weekRecords
       .reduce((s,r)=>s+(assumePaid ? projectedStripeFeeForInvoice(r) : stripeFeeForInvoice(r)),0);
     const expenses=operatingExpenses+stripeFees;
-    const leads=leadsSoldForInvoiceWeek(weekStart,records,periodEnd);
+    const leads=leadsSoldForInvoiceWeek(weekStart,records,periodEnd)+(leadProjection ? leadProjection.leads : 0);
     const netProfit=revenue-expenses;
     return {
       week_num:idx+1,
@@ -1885,7 +1900,7 @@ function monthlyPLRows(year,options={}){
     const miscIncome=inRange
       ? DB.miscIncome().filter(e=>e.income_date>=monthStart && e.income_date<=monthEnd).reduce((s,e)=>s+e.amount,0)
       : 0;
-    const invoiceRevenue=invoices.reduce((s,r)=>s+r.total_due,0);
+    const invoiceRevenue=monthWeeks.reduce((s,r)=>s+r.invoice_revenue,0);
     const revenue=invoiceRevenue+miscIncome;
     const netProfit=revenue-expenses;
     rows.push({
@@ -1965,10 +1980,13 @@ function loadPLPage(){
   const actualEnd=plActualEndForYear(year);
   const projectionEnd=plProjectionEndForYear(year);
   const currentYear=recordYear(today());
+  const currentWeekStart=getSun(today());
+  const currentWeekTotals=billableLeadTotalsForWeek(currentWeekStart,projectionEnd);
+  const projectionLeadWeeks=(year===currentYear && currentWeekTotals.leads) ? [currentWeekStart] : [];
   const weekly=weeklyPLRows(year,{endDate:actualEnd});
   const monthly=monthlyPLRows(year,{endDate:actualEnd});
-  const projectedWeekly=year===currentYear ? weeklyPLRows(year,{endDate:projectionEnd,invoiceRecords:projectedInvoiceRecords(),assumePaid:true}) : [];
-  const projectedMonthly=year===currentYear ? monthlyPLRows(year,{endDate:projectionEnd,invoiceRecords:projectedInvoiceRecords(),assumePaid:true}) : [];
+  const projectedWeekly=year===currentYear ? weeklyPLRows(year,{endDate:projectionEnd,invoiceRecords:projectedInvoiceRecords(),assumePaid:true,leadRevenueWeeks:projectionLeadWeeks}) : [];
+  const projectedMonthly=year===currentYear ? monthlyPLRows(year,{endDate:projectionEnd,invoiceRecords:projectedInvoiceRecords(),assumePaid:true,leadRevenueWeeks:projectionLeadWeeks}) : [];
   const transactions=transactionRows(year,actualEnd);
   const totals=monthly.reduce((acc,r)=>{
     acc.revenue+=r.revenue; acc.invoice_revenue+=r.invoice_revenue; acc.misc_income+=r.misc_income;
