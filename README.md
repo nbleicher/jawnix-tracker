@@ -33,7 +33,7 @@ JAWNIX_SETTINGS_TABLE=jawnix_settings
 JAWNIX_INVOICE_VOIDS_TABLE=jawnix_invoice_voids
 JAWNIX_INVOICE_RECORDS_TABLE=jawnix_invoice_records
 JAWNIX_EXPENSES_TABLE=jawnix_expenses
-JAWNIX_WEEKLY_FINANCIALS_TABLE=jawnix_weekly_financials
+JAWNIX_MISC_INCOME_TABLE=jawnix_misc_income
 JAWNIX_API_PORT=8001
 JAWNIX_INVOICE_DIR=/app/invoices
 JAWNIX_CORS_ORIGIN=*
@@ -61,7 +61,7 @@ Only set `JAWNIX_ALLOW_UNPROTECTED=true` for a deliberately public deployment af
 
 The app includes `POST /api/generate-invoice`. It accepts the invoice JSON produced by the weekly invoice modal, creates a Stripe Checkout Session when `STRIPE_SECRET_KEY` is set, renders `templates/Jawnix_Invoice_Template.docx` with Python `zipfile`, converts it with `libreoffice`, stores the DOCX and PDF in `JAWNIX_INVOICE_DIR`, and returns the PDF as a download. The Stripe Checkout URL and Session ID are returned in response headers so the frontend can save invoice records and expire matching Stripe Checkout Sessions when an invoice is voided from Settings.
 
-Invoice records include a manual paid/unpaid toggle in Invoice History. Paid, non-void invoices feed the P&L page as revenue. The P&L page also stores daily expenses in `jawnix_expenses` and weekly lead costs in `jawnix_weekly_financials`.
+Invoice records include a manual paid/unpaid toggle in Invoice History. Paid, non-void invoices feed the P&L page as invoice revenue. The P&L page also stores miscellaneous income with notes in `jawnix_misc_income` and expenses, including lead costs, in `jawnix_expenses`. Rerunning `supabase-schema.sql` migrates existing weekly lead costs from `jawnix_weekly_financials` into `jawnix_expenses`.
 
 The Docker image installs LibreOffice with apt. If generated invoices need to survive container restarts, mount persistent storage at `JAWNIX_INVOICE_DIR`.
 
@@ -79,7 +79,7 @@ railway variable set \
   JAWNIX_INVOICE_VOIDS_TABLE=jawnix_invoice_voids \
   JAWNIX_INVOICE_RECORDS_TABLE=jawnix_invoice_records \
   JAWNIX_EXPENSES_TABLE=jawnix_expenses \
-  JAWNIX_WEEKLY_FINANCIALS_TABLE=jawnix_weekly_financials \
+  JAWNIX_MISC_INCOME_TABLE=jawnix_misc_income \
   JAWNIX_API_PORT=8001 \
   JAWNIX_INVOICE_DIR=/app/invoices \
   JAWNIX_CORS_ORIGIN='*' \
