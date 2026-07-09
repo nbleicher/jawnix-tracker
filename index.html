@@ -81,11 +81,20 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 .history-table-wrap table{min-width:900px}
 .history-table-wrap th,.history-table-wrap td{white-space:nowrap}
 .history-file{max-width:210px;overflow:hidden;text-overflow:ellipsis}
+.date-nav{display:grid;grid-template-columns:auto minmax(190px,1fr) auto;gap:12px;align-items:end;margin-bottom:18px}
+.date-nav .field{margin:0}
+.weekly-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r)}
+.weekly-table-wrap table{min-width:760px}
+.weekly-table-wrap th,.weekly-table-wrap td{white-space:nowrap}
+.weekly-detail-row{display:none;background:var(--surface)}
+.weekly-detail-row.open{display:table-row}
+.weekly-detail-cell{padding:0 12px 12px}
+.weekly-detail-panel{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:#fff}
 .empty-state{border:1px solid var(--border);border-radius:var(--r);padding:24px;text-align:center;color:var(--muted);font-size:13px}
 .pl-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .pl-form-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:end}
 .pl-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px}
-.pl-table-wrap table{min-width:940px}
+.pl-table-wrap table{min-width:1180px}
 .pl-table-wrap th,.pl-table-wrap td{white-space:nowrap}
 .neg{color:#dc2626}
 .settings-box{border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px}
@@ -106,6 +115,8 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
   .tabs{padding:0 16px}
   .content{padding:16px}
   .row2,.history-toolbar,.pl-toolbar,.pl-grid,.pl-form-grid{grid-template-columns:1fr}
+  .date-nav{grid-template-columns:1fr 1fr}
+  .date-nav .field{grid-column:1/-1}
   .stat-bar{gap:14px}
 }
 </style>
@@ -159,8 +170,10 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <!-- DAILY -->
   <div class="pane" id="pane-daily">
-    <div class="row2" style="margin-bottom:18px">
+    <div class="date-nav">
+      <button class="btn" onclick="changeDay(-1)">Previous day</button>
       <div class="field" style="margin:0"><label>Date</label><input type="date" id="daily-date" onchange="loadDaily()"></div>
+      <button class="btn" onclick="changeDay(1)">Next day</button>
     </div>
     <div id="daily-out"><div class="msg-info">Loading…</div></div>
   </div>
@@ -252,7 +265,14 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
           <div class="field" style="margin:0"><label>Category</label><input type="text" id="pl-expense-category" placeholder="Lead costs / Software"></div>
           <div class="field" style="margin:0"><label>Vendor / Service</label><input type="text" id="pl-expense-vendor" placeholder="Vendor"></div>
         </div>
-        <div class="field" style="margin-top:12px"><label>Billing cycle</label><input type="text" id="pl-expense-cycle" placeholder="Subscription"></div>
+        <div class="field" style="margin-top:12px"><label>Billing cycle</label>
+          <select id="pl-expense-cycle">
+            <option value="One time">One time</option>
+            <option value="Monthly">Monthly</option>
+            <option value="Quarterly">Quarterly</option>
+            <option value="Annually">Annually</option>
+          </select>
+        </div>
         <div class="field"><label>Notes</label><input type="text" id="pl-expense-notes" placeholder="Description"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary" onclick="savePLExpense()">Save expense</button>
@@ -1345,6 +1365,14 @@ function loadDaily(){
   </table>`;
 }
 
+function changeDay(offset){
+  const input=document.getElementById('daily-date');
+  const base=new Date((input.value || today())+'T12:00:00');
+  base.setDate(base.getDate()+offset);
+  input.value=localDate(base);
+  loadDaily();
+}
+
 // ── Weekly tab ────────────────────────────────────────────────────────────────
 function loadWeekly(){
   const date=document.getElementById('weekly-date').value;
@@ -1356,41 +1384,50 @@ function loadWeekly(){
   const billedClients=data.clients.filter(c=>!c.voided);
   const weekLeads=billedClients.reduce((s,c)=>s+c.total_leads,0);
   const weekAmt=billedClients.reduce((s,c)=>s+c.total_amount,0);
+  const weekEntries=billedClients.reduce((s,c)=>s+c.days.length,0);
   el.innerHTML=`
-    <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Week of ${data.week_label}</div>
-    <table style="margin-bottom:18px">
-      <thead><tr><th>Client</th><th class="td-r">Leads</th><th class="td-r">Amount</th><th></th></tr></thead>
+    <div class="stat-bar">
+      <div class="stat"><div class="stat-lbl">Clients</div><div class="stat-val">${billedClients.length}</div></div>
+      <div class="stat"><div class="stat-lbl">Entries</div><div class="stat-val">${weekEntries.toLocaleString()}</div></div>
+      <div class="stat"><div class="stat-lbl">Leads</div><div class="stat-val">${weekLeads.toLocaleString()}</div></div>
+      <div class="stat"><div class="stat-lbl">Billed total</div><div class="stat-val">$${weekAmt.toFixed(2)}</div></div>
+    </div>
+    <div class="weekly-table-wrap">
+    <table>
+      <thead><tr><th>Client</th><th class="td-r">Entries</th><th class="td-r">Leads</th><th class="td-r">Avg rate</th><th class="td-r">Amount</th><th></th><th></th></tr></thead>
       <tbody>${data.clients.map((c,i)=>`<tr class="${c.voided?'muted-row':''}">
         <td>${esc(c.client)} ${c.voided?'<span class="badge badge-void" style="margin-left:6px">Void</span>':''}</td>
+        <td class="td-r">${c.days.length.toLocaleString()}</td>
         <td class="td-r">${c.total_leads.toLocaleString()}</td>
+        <td class="td-r">$${fmtRate(c.total_leads ? c.total_amount/c.total_leads : c.rate)}</td>
         <td class="td-r">$${c.total_amount.toFixed(2)}</td>
+        <td><button class="btn btn-sm" onclick="toggleWeeklyDetails(${i})">Details</button></td>
         <td style="padding-left:8px">${c.voided?'<span class="badge badge-void">Excluded</span>':`<button class="btn btn-sm btn-primary" onclick="openInvModal(${i})">Invoice</button>`}</td>
+      </tr>
+      <tr class="weekly-detail-row" id="weekly-detail-${i}">
+        <td class="weekly-detail-cell" colspan="7">
+          <div class="weekly-detail-panel">
+            <table>
+              <thead><tr><th>Day</th><th>Date</th><th class="td-r">Leads</th><th class="td-r">Rate</th><th class="td-r">Amount</th><th></th></tr></thead>
+              <tbody>${c.days.map(d=>weeklyEntryRow(d,c.client)).join('')}</tbody>
+              <tfoot><tr class="tr-total"><td colspan="2">Total</td>
+                <td class="td-r">${c.total_leads.toLocaleString()}</td><td></td>
+                <td class="td-r">$${c.total_amount.toFixed(2)}</td><td></td></tr></tfoot>
+            </table>
+          </div>
+        </td>
       </tr>`).join('')}</tbody>
-      <tfoot><tr class="tr-total"><td>Billed total</td><td class="td-r">${weekLeads.toLocaleString()}</td><td class="td-r">$${weekAmt.toFixed(2)}</td><td></td></tr></tfoot>
-    </table>`+
-    data.clients.map((c,i)=>`<div class="card ${c.voided?'muted-row':''}">
-      <div class="card-head">
-        <div>
-          <div class="card-name">${esc(c.client)} ${c.voided?'<span class="badge badge-void" style="margin-left:6px">Void</span>':''}</div>
-          <div class="card-sub">${c.total_leads.toLocaleString()} leads &middot; $${fmtRate(c.rate)}/lead</div>
-        </div>
-        <div style="text-align:right">
-          <div class="card-amt">$${c.total_amount.toFixed(2)}</div>
-          ${c.voided?'<span class="badge badge-void" style="margin-top:6px">Excluded from billing</span>':`<button class="btn btn-sm btn-primary" style="margin-top:6px" onclick="openInvModal(${i})">Invoice</button>`}
-        </div>
-      </div>
-      <table>
-        <thead><tr><th>Day</th><th>Date</th><th class="td-r">Leads</th><th class="td-r">Rate</th><th class="td-r">Amount</th><th></th></tr></thead>
-        <tbody>${c.days.map(d=>weeklyEntryRow(d,c.client)).join('')}</tbody>
-        <tfoot><tr class="tr-total"><td colspan="2">Total</td>
-          <td class="td-r">${c.total_leads.toLocaleString()}</td><td></td>
-          <td class="td-r">$${c.total_amount.toFixed(2)}</td><td></td></tr></tfoot>
-      </table>
-    </div>`).join('');
+      <tfoot><tr class="tr-total"><td>Billed total</td><td class="td-r">${weekEntries.toLocaleString()}</td><td class="td-r">${weekLeads.toLocaleString()}</td><td></td><td class="td-r">$${weekAmt.toFixed(2)}</td><td></td><td></td></tr></tfoot>
+    </table>
+    </div>`;
 
   // store for modal access
   window._weeklyClients = data.clients;
   window._weeklyLabel   = data.week_label;
+}
+
+function toggleWeeklyDetails(index){
+  document.getElementById('weekly-detail-'+index)?.classList.toggle('open');
 }
 
 function changeWeek(offset){
@@ -1522,8 +1559,29 @@ async function toggleInvoicePaid(index){
 }
 
 // ── P&L ──────────────────────────────────────────────────────────────────────
+const STRIPE_FEE_RATE = 0.029;
+const STRIPE_FEE_FIXED = 0.30;
+
 function paidInvoiceRecords(){
   return DB.invoiceRecords().filter(r=>!r.voided_at && ['paid','no_payment_required'].includes(invoicePaymentStatus(r)));
+}
+
+function stripeFeeForInvoice(record){
+  if(invoicePaymentStatus(record)!=='paid') return 0;
+  if(!record.checkout_session_id) return 0;
+  const total=Number(record.total_due || 0);
+  if(total<=0) return 0;
+  return Math.round(((total * STRIPE_FEE_RATE) + STRIPE_FEE_FIXED) * 100) / 100;
+}
+
+function stripeFeeRecords(){
+  return DB.invoiceRecords().filter(r=>!r.voided_at && invoicePaymentStatus(r)==='paid' && r.checkout_session_id);
+}
+
+function stripeFeeSumForWeek(weekStart){
+  return stripeFeeRecords()
+    .filter(r=>r.week_start===weekStart)
+    .reduce((s,r)=>s+stripeFeeForInvoice(r),0);
 }
 
 function weekEnd(weekStart){
@@ -1535,6 +1593,79 @@ function weekEnd(weekStart){
 function recordYear(dateValue){
   const d=new Date(String(dateValue).slice(0,10)+'T12:00:00');
   return Number.isNaN(d.getTime()) ? null : d.getFullYear();
+}
+
+function billingCycleKey(value){
+  const text=String(value || '').trim().toLowerCase().replace(/[_-]+/g,' ');
+  if(!text || /one\s*time|one off|once|single/.test(text)) return 'one_time';
+  if(/quarter/.test(text)) return 'quarterly';
+  if(/annual|year/.test(text)) return 'annually';
+  if(/month|subscription|recurr/.test(text)) return 'monthly';
+  return 'one_time';
+}
+
+function billingCycleLabel(value){
+  const key=billingCycleKey(value);
+  if(key==='monthly') return 'Monthly';
+  if(key==='quarterly') return 'Quarterly';
+  if(key==='annually') return 'Annually';
+  return 'One time';
+}
+
+function billingCycleMonths(value){
+  const key=billingCycleKey(value);
+  if(key==='monthly') return 1;
+  if(key==='quarterly') return 3;
+  if(key==='annually') return 12;
+  return 0;
+}
+
+function daysInMonth(year,month){
+  return new Date(year,month+1,0).getDate();
+}
+
+function expenseOccurrenceDateForMonth(expense,year,month){
+  if(!expense.expense_date) return '';
+  const start=new Date(expense.expense_date+'T12:00:00');
+  if(Number.isNaN(start.getTime())) return '';
+  const monthOffset=(year-start.getFullYear())*12+(month-start.getMonth());
+  if(monthOffset<0) return '';
+  const interval=billingCycleMonths(expense.billing_cycle);
+  if(interval===0 && monthOffset!==0) return '';
+  if(interval>0 && monthOffset%interval!==0) return '';
+  const day=Math.min(start.getDate(),daysInMonth(year,month));
+  return localDate(new Date(year,month,day,12));
+}
+
+function expenseOccurrencesForYear(year){
+  const rows=[];
+  DB.expenses().forEach(e=>{
+    const interval=billingCycleMonths(e.billing_cycle);
+    for(let month=0; month<12; month++){
+      const date=expenseOccurrenceDateForMonth(e,year,month);
+      if(!date) continue;
+      rows.push({
+        ...e,
+        occurrence_date:date,
+        original_expense_date:e.expense_date,
+        billing_cycle:billingCycleLabel(e.billing_cycle),
+        recurring:interval>0,
+        automatic:interval>0 && date!==e.expense_date,
+      });
+    }
+  });
+  return rows.sort((a,b)=>a.occurrence_date.localeCompare(b.occurrence_date)||String(a.vendor).localeCompare(String(b.vendor))||a.id-b.id);
+}
+
+function expenseOccurrencesForRange(startDate,endDate){
+  const startYear=recordYear(startDate);
+  const endYear=recordYear(endDate);
+  if(!startYear || !endYear) return [];
+  const rows=[];
+  for(let year=startYear; year<=endYear; year++){
+    rows.push(...expenseOccurrencesForYear(year).filter(e=>e.occurrence_date>=startDate && e.occurrence_date<=endDate));
+  }
+  return rows;
 }
 
 function refreshPLYearFilter(selectedYear){
@@ -1554,15 +1685,14 @@ function refreshPLYearFilter(selectedYear){
 function weekKeySetForYear(year){
   const weeks=new Set();
   paidInvoiceRecords().forEach(r=>{if(recordYear(r.week_start)===year) weeks.add(r.week_start);});
-  DB.expenses().forEach(e=>{if(recordYear(e.expense_date)===year) weeks.add(getSun(e.expense_date));});
+  expenseOccurrencesForYear(year).forEach(e=>weeks.add(getSun(e.occurrence_date)));
   DB.miscIncome().forEach(e=>{if(recordYear(e.income_date)===year) weeks.add(getSun(e.income_date));});
   return [...weeks].sort();
 }
 
 function expenseSumForWeek(weekStart){
   const end=weekEnd(weekStart);
-  return DB.expenses()
-    .filter(e=>e.expense_date>=weekStart && e.expense_date<=end)
+  return expenseOccurrencesForRange(weekStart,end)
     .reduce((s,e)=>s+e.amount,0);
 }
 
@@ -1589,7 +1719,9 @@ function weeklyPLRows(year){
       .reduce((s,r)=>s+r.total_due,0);
     const miscRevenue=miscIncomeSumForWeek(weekStart);
     const revenue=invoiceRevenue+miscRevenue;
-    const expenses=expenseSumForWeek(weekStart);
+    const operatingExpenses=expenseSumForWeek(weekStart);
+    const stripeFees=stripeFeeSumForWeek(weekStart);
+    const expenses=operatingExpenses+stripeFees;
     const leads=leadsSoldForPaidWeek(weekStart);
     const netProfit=revenue-expenses;
     return {
@@ -1601,6 +1733,8 @@ function weeklyPLRows(year){
       revenue,
       invoice_revenue:invoiceRevenue,
       misc_income:miscRevenue,
+      operating_expenses:operatingExpenses,
+      stripe_fees:stripeFees,
       expenses,
       net_profit:netProfit,
       margin:revenue ? netProfit/revenue : 0,
@@ -1619,10 +1753,12 @@ function monthlyPLRows(year){
       const d=new Date(r.week_start+'T12:00:00');
       return d.getFullYear()===year && d.getMonth()===month;
     });
-    const expenses=DB.expenses().filter(e=>{
-      const d=new Date(e.expense_date+'T12:00:00');
+    const operatingExpenses=expenseOccurrencesForYear(year).filter(e=>{
+      const d=new Date(e.occurrence_date+'T12:00:00');
       return d.getFullYear()===year && d.getMonth()===month;
     }).reduce((s,e)=>s+e.amount,0);
+    const stripeFees=invoices.reduce((s,r)=>s+stripeFeeForInvoice(r),0);
+    const expenses=operatingExpenses+stripeFees;
     const miscIncome=DB.miscIncome().filter(e=>{
       const d=new Date(e.income_date+'T12:00:00');
       return d.getFullYear()===year && d.getMonth()===month;
@@ -1635,6 +1771,8 @@ function monthlyPLRows(year){
       revenue,
       invoice_revenue:invoiceRevenue,
       misc_income:miscIncome,
+      operating_expenses:operatingExpenses,
+      stripe_fees:stripeFees,
       expenses,
       net_profit:netProfit,
       margin:revenue ? netProfit/revenue : 0,
@@ -1657,14 +1795,26 @@ function transactionRows(year){
       source:'Paid invoice',
     });
   });
-  DB.expenses().forEach(e=>{
-    if(recordYear(e.expense_date)!==year) return;
+  stripeFeeRecords().forEach(r=>{
+    const date=(r.paid_at || r.generated_at || r.week_start).slice(0,10);
+    if(recordYear(date)!==year) return;
+    const fee=stripeFeeForInvoice(r);
+    if(!fee) return;
     rows.push({
-      date:e.expense_date,
+      date,
       type:'Expense',
-      description:[e.vendor,e.category].filter(Boolean).join(' - ') || 'Expense',
+      description:`Stripe fee - ${r.invoice_num} - ${r.client}`,
+      amount:-fee,
+      source:'2.9% + $0.30',
+    });
+  });
+  expenseOccurrencesForYear(year).forEach(e=>{
+    rows.push({
+      date:e.occurrence_date,
+      type:'Expense',
+      description:([e.vendor,e.category].filter(Boolean).join(' - ') || 'Expense')+(e.automatic ? ' (automatic)' : ''),
       amount:-e.amount,
-      source:e.billing_cycle || 'Expense',
+      source:e.automatic ? `${e.billing_cycle} automatic` : e.billing_cycle,
     });
   });
   DB.miscIncome().forEach(r=>{
@@ -1694,14 +1844,16 @@ function loadPLPage(){
   const transactions=transactionRows(year);
   const totals=monthly.reduce((acc,r)=>{
     acc.revenue+=r.revenue; acc.invoice_revenue+=r.invoice_revenue; acc.misc_income+=r.misc_income;
+    acc.operating_expenses+=r.operating_expenses; acc.stripe_fees+=r.stripe_fees;
     acc.expenses+=r.expenses; acc.net_profit+=r.net_profit;
     return acc;
-  },{revenue:0,invoice_revenue:0,misc_income:0,expenses:0,net_profit:0});
+  },{revenue:0,invoice_revenue:0,misc_income:0,operating_expenses:0,stripe_fees:0,expenses:0,net_profit:0});
   summary.innerHTML=`${missing.length ? `<div class="msg-info">Missing ${esc(missing.join(', '))} table${missing.length===1?'':'s'}. Run the updated Supabase schema to enable all P&L features.</div>` : ''}
     <div class="stat-bar">
       <div class="stat"><div class="stat-lbl">Gross revenue</div><div class="stat-val">${moneyFmt(totals.revenue)}</div></div>
       <div class="stat"><div class="stat-lbl">Invoice revenue</div><div class="stat-val">${moneyFmt(totals.invoice_revenue)}</div></div>
       <div class="stat"><div class="stat-lbl">Misc income</div><div class="stat-val">${moneyFmt(totals.misc_income)}</div></div>
+      <div class="stat"><div class="stat-lbl">Stripe fees</div><div class="stat-val">${moneyFmt(totals.stripe_fees)}</div></div>
       <div class="stat"><div class="stat-lbl">Expenses</div><div class="stat-val">${moneyFmt(totals.expenses)}</div></div>
       <div class="stat"><div class="stat-lbl">Net profit</div><div class="stat-val">${moneyFmt(totals.net_profit)}</div></div>
       <div class="stat"><div class="stat-lbl">Net margin</div><div class="stat-val">${pctFmt(totals.revenue ? totals.net_profit/totals.revenue : 0)}</div></div>
@@ -1710,22 +1862,24 @@ function loadPLPage(){
   out.innerHTML=`
     <div class="sec-lbl">Monthly summary</div>
     <div class="pl-table-wrap"><table>
-      <thead><tr><th>Month</th><th class="td-r">Gross revenue</th><th class="td-r">Invoice revenue</th><th class="td-r">Misc income</th><th class="td-r">Expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th><th class="td-r">Weeks</th></tr></thead>
+      <thead><tr><th>Month</th><th class="td-r">Gross revenue</th><th class="td-r">Invoice revenue</th><th class="td-r">Misc income</th><th class="td-r">Operating expenses</th><th class="td-r">Stripe fees</th><th class="td-r">Total expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th><th class="td-r">Weeks</th></tr></thead>
       <tbody>${monthly.map(r=>`<tr>
         <td>${r.month}</td><td class="td-r">${moneyFmt(r.revenue)}</td><td class="td-r">${moneyFmt(r.invoice_revenue)}</td>
-        <td class="td-r">${moneyFmt(r.misc_income)}</td><td class="td-r">${moneyFmt(r.expenses)}</td>
+        <td class="td-r">${moneyFmt(r.misc_income)}</td><td class="td-r">${moneyFmt(r.operating_expenses)}</td>
+        <td class="td-r">${moneyFmt(r.stripe_fees)}</td><td class="td-r">${moneyFmt(r.expenses)}</td>
         <td class="td-r ${r.net_profit<0?'neg':''}">${moneyFmt(r.net_profit)}</td><td class="td-r">${pctFmt(r.margin)}</td><td class="td-r">${r.weeks}</td>
       </tr>`).join('')}</tbody>
     </table></div>
 
     <div class="sec-lbl">Weekly P&amp;L</div>
     ${weekly.length ? `<div class="pl-table-wrap"><table>
-      <thead><tr><th>Wk #</th><th>Week start</th><th>Week end</th><th class="td-r">Leads sold</th><th class="td-r">Price / lead</th><th class="td-r">Gross revenue</th><th class="td-r">Invoice revenue</th><th class="td-r">Misc income</th><th class="td-r">Expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th></tr></thead>
+      <thead><tr><th>Wk #</th><th>Week start</th><th>Week end</th><th class="td-r">Leads sold</th><th class="td-r">Price / lead</th><th class="td-r">Gross revenue</th><th class="td-r">Invoice revenue</th><th class="td-r">Misc income</th><th class="td-r">Operating expenses</th><th class="td-r">Stripe fees</th><th class="td-r">Total expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th></tr></thead>
       <tbody>${weekly.map(r=>`<tr>
         <td>${r.week_num}</td><td>${fmtD(r.week_start)}</td><td>${fmtD(r.week_end)}</td>
         <td class="td-r">${r.leads.toLocaleString()}</td><td class="td-r">$${r.price_per_lead.toFixed(4)}</td>
         <td class="td-r">${moneyFmt(r.revenue)}</td><td class="td-r">${moneyFmt(r.invoice_revenue)}</td>
-        <td class="td-r">${moneyFmt(r.misc_income)}</td><td class="td-r">${moneyFmt(r.expenses)}</td>
+        <td class="td-r">${moneyFmt(r.misc_income)}</td><td class="td-r">${moneyFmt(r.operating_expenses)}</td>
+        <td class="td-r">${moneyFmt(r.stripe_fees)}</td><td class="td-r">${moneyFmt(r.expenses)}</td>
         <td class="td-r ${r.net_profit<0?'neg':''}">${moneyFmt(r.net_profit)}</td><td class="td-r">${pctFmt(r.margin)}</td>
       </tr>`).join('')}</tbody>
     </table></div>` : '<div class="empty-state">No paid revenue, misc income, or expenses for this year.</div>'}
@@ -1748,14 +1902,15 @@ function loadPLPage(){
 }
 
 function renderExpenseLog(year){
-  const rows=DB.expenses().filter(e=>recordYear(e.expense_date)===year).sort((a,b)=>b.expense_date.localeCompare(a.expense_date)||b.id-a.id);
+  const expenseIds=new Set(expenseOccurrencesForYear(year).map(e=>String(e.id)));
+  const rows=DB.expenses().filter(e=>expenseIds.has(String(e.id))).sort((a,b)=>b.expense_date.localeCompare(a.expense_date)||b.id-a.id);
   window._expenseRows=rows;
   if(!rows.length) return '<div class="empty-state">No expenses for this year.</div>';
   return `<div class="pl-table-wrap"><table>
-    <thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Billing cycle</th><th>Notes</th><th class="td-r">Amount</th><th></th></tr></thead>
+    <thead><tr><th>Start date</th><th>Category</th><th>Vendor</th><th>Billing cycle</th><th>Notes</th><th class="td-r">Amount</th><th></th></tr></thead>
     <tbody>${rows.map((e,i)=>`<tr>
       <td>${fmtD(e.expense_date)}</td><td>${esc(e.category || '-')}</td><td>${esc(e.vendor || '-')}</td>
-      <td>${esc(e.billing_cycle || '-')}</td><td>${esc(e.notes || '-')}</td><td class="td-r">${moneyFmt(e.amount)}</td>
+      <td>${esc(billingCycleLabel(e.billing_cycle))} ${billingCycleMonths(e.billing_cycle)?'<span class="badge badge-ok" style="margin-left:6px">Automatic</span>':''}</td><td>${esc(e.notes || '-')}</td><td class="td-r">${moneyFmt(e.amount)}</td>
       <td style="white-space:nowrap"><button class="btn btn-sm" onclick="editExpense(${i})">Edit</button><button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteExpenseRow(${e.id})">Delete</button></td>
     </tr>`).join('')}</tbody>
   </table></div>`;
@@ -1815,7 +1970,7 @@ function resetPLExpenseForm(){
   document.getElementById('pl-expense-amount').value='';
   document.getElementById('pl-expense-category').value='';
   document.getElementById('pl-expense-vendor').value='';
-  document.getElementById('pl-expense-cycle').value='';
+  document.getElementById('pl-expense-cycle').value='One time';
   document.getElementById('pl-expense-notes').value='';
 }
 
@@ -1827,7 +1982,7 @@ function editExpense(index){
   document.getElementById('pl-expense-amount').value=e.amount;
   document.getElementById('pl-expense-category').value=e.category;
   document.getElementById('pl-expense-vendor').value=e.vendor;
-  document.getElementById('pl-expense-cycle').value=e.billing_cycle;
+  document.getElementById('pl-expense-cycle').value=billingCycleLabel(e.billing_cycle);
   document.getElementById('pl-expense-notes').value=e.notes;
   document.getElementById('pl-expense-id').scrollIntoView({block:'center'});
 }
@@ -1841,7 +1996,7 @@ async function savePLExpense(){
       amount:document.getElementById('pl-expense-amount').value,
       category:document.getElementById('pl-expense-category').value,
       vendor:document.getElementById('pl-expense-vendor').value,
-      billing_cycle:document.getElementById('pl-expense-cycle').value,
+      billing_cycle:billingCycleLabel(document.getElementById('pl-expense-cycle').value),
       notes:document.getElementById('pl-expense-notes').value,
     });
     msg.innerHTML=`<div class="msg-ok">Saved expense for ${fmtD(saved.expense_date)}.</div>`;
