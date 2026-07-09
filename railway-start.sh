@@ -9,7 +9,7 @@ set -eu
 : "${JAWNIX_INVOICE_VOIDS_TABLE:=jawnix_invoice_voids}"
 : "${JAWNIX_INVOICE_RECORDS_TABLE:=jawnix_invoice_records}"
 : "${JAWNIX_EXPENSES_TABLE:=jawnix_expenses}"
-: "${JAWNIX_WEEKLY_FINANCIALS_TABLE:=jawnix_weekly_financials}"
+: "${JAWNIX_MISC_INCOME_TABLE:=jawnix_misc_income}"
 : "${CADDY_BIN:=caddy}"
 : "${APP_DIR:=/app}"
 : "${JAWNIX_INVOICE_DIR:=$APP_DIR/invoices}"
@@ -45,7 +45,7 @@ window.JAWNIX_CONFIG = {
   invoiceVoidsTable: '$(js_escape "$JAWNIX_INVOICE_VOIDS_TABLE")',
   invoiceRecordsTable: '$(js_escape "$JAWNIX_INVOICE_RECORDS_TABLE")',
   expensesTable: '$(js_escape "$JAWNIX_EXPENSES_TABLE")',
-  weeklyFinancialsTable: '$(js_escape "$JAWNIX_WEEKLY_FINANCIALS_TABLE")',
+  miscIncomeTable: '$(js_escape "$JAWNIX_MISC_INCOME_TABLE")',
 };
 EOF
 

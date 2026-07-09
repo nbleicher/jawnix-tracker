@@ -7,5 +7,5 @@ window.JAWNIX_CONFIG = {
   invoiceVoidsTable: 'jawnix_invoice_voids',
   invoiceRecordsTable: 'jawnix_invoice_records',
   expensesTable: 'jawnix_expenses',
-  weeklyFinancialsTable: 'jawnix_weekly_financials',
+  miscIncomeTable: 'jawnix_misc_income',
 };
