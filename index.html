@@ -134,7 +134,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 <div class="tabs">
   <button class="tab active" onclick="tab('log')">Log leads</button>
   <button class="tab" onclick="tab('daily')">Daily view</button>
-  <button class="tab" onclick="tab('weekly')">Weekly summary</button>
+  <button class="tab" onclick="tab('weekly')">Summary</button>
   <button class="tab" onclick="tab('history')">Invoice history</button>
   <button class="tab" onclick="tab('pl')">P&amp;L</button>
   <button class="tab" onclick="tab('settings')">Settings</button>
@@ -178,13 +178,13 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     <div id="daily-out"><div class="msg-info">Loading…</div></div>
   </div>
 
-  <!-- WEEKLY -->
+  <!-- SUMMARY -->
   <div class="pane" id="pane-weekly">
     <input type="hidden" id="weekly-date">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px">
       <button class="btn" onclick="changeWeek(-1)">Previous week</button>
       <div style="text-align:center;min-width:0">
-        <div class="sec-lbl" style="margin-bottom:2px">Weekly summary</div>
+        <div class="sec-lbl" style="margin-bottom:2px">Summary</div>
         <div id="weekly-range" style="font-size:18px;font-weight:700;color:var(--navy)">—</div>
       </div>
       <button class="btn" onclick="changeWeek(1)">Next week</button>
@@ -1104,6 +1104,39 @@ function viewWeekly(weekStart){
   return {week_start:weekStart,week_label,clients:Object.values(map)};
 }
 
+function viewMonthly(dateValue){
+  const base=new Date((dateValue || today())+'T12:00:00');
+  const start=new Date(base.getFullYear(),base.getMonth(),1,12);
+  const end=new Date(base.getFullYear(),base.getMonth()+1,0,12);
+  const monthStart=localDate(start);
+  const monthEnd=localDate(end);
+  const entries=DB.leads().filter(e=>e.date>=monthStart && e.date<=monthEnd);
+  const map={};
+  entries.forEach(e=>{
+    if(!map[e.client]){
+      map[e.client]={client:e.client,entries:0,weeks:new Set(),total_leads:0,total_amount:0};
+    }
+    const row=map[e.client];
+    row.entries++;
+    row.weeks.add(getSun(e.date));
+    row.total_leads+=e.leads;
+    row.total_amount+=e.amount;
+  });
+  const clients=Object.values(map).map(c=>({
+    ...c,
+    week_count:c.weeks.size,
+    total_amount:Math.round(c.total_amount*100)/100,
+    billable_leads:c.total_leads,
+    billable_amount:Math.round(c.total_amount*100)/100,
+  })).sort((a,b)=>a.client.localeCompare(b.client));
+  return {
+    month_start:monthStart,
+    month_end:monthEnd,
+    month_label:start.toLocaleDateString('en-US',{month:'long',year:'numeric'}),
+    clients,
+  };
+}
+
 function getClients(){
   const seen={};
   DB.leads().forEach(e=>{if(!seen[e.client])seen[e.client]=e.email||'';});
@@ -1379,13 +1412,17 @@ function loadWeekly(){
   const sun=getSun(date);
   const el=document.getElementById('weekly-out');
   const data=viewWeekly(sun);
+  const month=viewMonthly(date);
   document.getElementById('weekly-range').textContent=data.week_label;
-  if(!data.clients.length){el.innerHTML=`<div class="msg-info">No entries for week of ${data.week_label}.</div>`;return;}
   const billedClients=data.clients.filter(c=>!c.voided);
   const weekLeads=billedClients.reduce((s,c)=>s+c.total_leads,0);
   const weekAmt=billedClients.reduce((s,c)=>s+c.total_amount,0);
   const weekEntries=billedClients.reduce((s,c)=>s+c.days.length,0);
+  const monthEntries=month.clients.reduce((s,c)=>s+c.entries,0);
+  const monthLeads=month.clients.reduce((s,c)=>s+c.billable_leads,0);
+  const monthAmt=month.clients.reduce((s,c)=>s+c.billable_amount,0);
   el.innerHTML=`
+    <div class="sec-lbl">Weekly view</div>
     <div class="stat-bar">
       <div class="stat"><div class="stat-lbl">Clients</div><div class="stat-val">${billedClients.length}</div></div>
       <div class="stat"><div class="stat-lbl">Entries</div><div class="stat-val">${weekEntries.toLocaleString()}</div></div>
@@ -1419,7 +1456,29 @@ function loadWeekly(){
       </tr>`).join('')}</tbody>
       <tfoot><tr class="tr-total"><td>Billed total</td><td class="td-r">${weekEntries.toLocaleString()}</td><td class="td-r">${weekLeads.toLocaleString()}</td><td></td><td class="td-r">$${weekAmt.toFixed(2)}</td><td></td><td></td></tr></tfoot>
     </table>
-    </div>`;
+    </div>
+
+    <div class="sec-lbl" style="margin-top:22px">Monthly view - ${esc(month.month_label)}</div>
+    <div class="stat-bar">
+      <div class="stat"><div class="stat-lbl">Clients</div><div class="stat-val">${month.clients.length}</div></div>
+      <div class="stat"><div class="stat-lbl">Entries</div><div class="stat-val">${monthEntries.toLocaleString()}</div></div>
+      <div class="stat"><div class="stat-lbl">Billable leads</div><div class="stat-val">${monthLeads.toLocaleString()}</div></div>
+      <div class="stat"><div class="stat-lbl">Billed total</div><div class="stat-val">$${monthAmt.toFixed(2)}</div></div>
+    </div>
+    ${month.clients.length ? `<div class="weekly-table-wrap">
+    <table>
+      <thead><tr><th>Client</th><th class="td-r">Entries</th><th class="td-r">Weeks</th><th class="td-r">Billable leads</th><th class="td-r">Avg rate</th><th class="td-r">Billed amount</th></tr></thead>
+      <tbody>${month.clients.map(c=>`<tr>
+        <td>${esc(c.client)}</td>
+        <td class="td-r">${c.entries.toLocaleString()}</td>
+        <td class="td-r">${c.week_count.toLocaleString()}</td>
+        <td class="td-r">${c.billable_leads.toLocaleString()}</td>
+        <td class="td-r">$${fmtRate(c.billable_leads ? c.billable_amount/c.billable_leads : 0)}</td>
+        <td class="td-r">$${c.billable_amount.toFixed(2)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr class="tr-total"><td>Billed total</td><td class="td-r">${monthEntries.toLocaleString()}</td><td></td><td class="td-r">${monthLeads.toLocaleString()}</td><td></td><td class="td-r">$${monthAmt.toFixed(2)}</td></tr></tfoot>
+    </table>
+    </div>` : `<div class="msg-info">No entries for ${esc(month.month_label)}.</div>`}`;
 
   // store for modal access
   window._weeklyClients = data.clients;
@@ -1566,8 +1625,29 @@ function paidInvoiceRecords(){
   return DB.invoiceRecords().filter(r=>!r.voided_at && ['paid','no_payment_required'].includes(invoicePaymentStatus(r)));
 }
 
+function activeInvoiceRecords(){
+  return DB.invoiceRecords().filter(r=>!r.voided_at);
+}
+
+function projectedInvoiceRecords(){
+  return activeInvoiceRecords().filter(r=>['paid','unpaid','no_payment_required'].includes(invoicePaymentStatus(r)));
+}
+
+function invoiceRecordsThrough(records,endDate){
+  if(!endDate) return [];
+  return records.filter(r=>r.week_start<=endDate);
+}
+
 function stripeFeeForInvoice(record){
   if(invoicePaymentStatus(record)!=='paid') return 0;
+  if(!record.checkout_session_id) return 0;
+  const total=Number(record.total_due || 0);
+  if(total<=0) return 0;
+  return Math.round(((total * STRIPE_FEE_RATE) + STRIPE_FEE_FIXED) * 100) / 100;
+}
+
+function projectedStripeFeeForInvoice(record){
+  if(invoicePaymentStatus(record)==='no_payment_required') return 0;
   if(!record.checkout_session_id) return 0;
   const total=Number(record.total_due || 0);
   if(total<=0) return 0;
@@ -1588,6 +1668,37 @@ function weekEnd(weekStart){
   const d=new Date(weekStart+'T12:00:00');
   d.setDate(d.getDate()+6);
   return localDate(d);
+}
+
+function startOfYear(year){
+  return `${year}-01-01`;
+}
+
+function endOfYear(year){
+  return `${year}-12-31`;
+}
+
+function minDate(a,b){
+  if(a===undefined || a===null) return b || '';
+  if(b===undefined || b===null) return a || '';
+  if(!a || !b) return '';
+  return a<b ? a : b;
+}
+
+function plActualEndForYear(year){
+  const t=today();
+  const currentYear=recordYear(t);
+  if(year<currentYear) return endOfYear(year);
+  if(year===currentYear) return t;
+  return '';
+}
+
+function plProjectionEndForYear(year){
+  const t=today();
+  const currentYear=recordYear(t);
+  if(year<currentYear) return endOfYear(year);
+  if(year===currentYear) return minDate(weekEnd(getSun(t)),endOfYear(year));
+  return '';
 }
 
 function recordYear(dateValue){
@@ -1682,52 +1793,63 @@ function refreshPLYearFilter(selectedYear){
   loadPLPage();
 }
 
-function weekKeySetForYear(year){
+function weekKeySetForYear(year,endDate,invoiceRecords){
   const weeks=new Set();
-  paidInvoiceRecords().forEach(r=>{if(recordYear(r.week_start)===year) weeks.add(r.week_start);});
-  expenseOccurrencesForYear(year).forEach(e=>weeks.add(getSun(e.occurrence_date)));
-  DB.miscIncome().forEach(e=>{if(recordYear(e.income_date)===year) weeks.add(getSun(e.income_date));});
+  const yearStart=startOfYear(year);
+  const yearEnd=minDate(endDate,endOfYear(year));
+  if(!yearEnd || yearEnd<yearStart) return [];
+  invoiceRecordsThrough(invoiceRecords || paidInvoiceRecords(),yearEnd).forEach(r=>{
+    if(r.week_start>=yearStart && r.week_start<=yearEnd) weeks.add(r.week_start);
+  });
+  expenseOccurrencesForRange(yearStart,yearEnd).forEach(e=>weeks.add(getSun(e.occurrence_date)));
+  DB.miscIncome().forEach(e=>{if(e.income_date>=yearStart && e.income_date<=yearEnd) weeks.add(getSun(e.income_date));});
   return [...weeks].sort();
 }
 
-function expenseSumForWeek(weekStart){
-  const end=weekEnd(weekStart);
+function expenseSumForWeek(weekStart,endDate){
+  const end=minDate(weekEnd(weekStart),endDate || weekEnd(weekStart));
   return expenseOccurrencesForRange(weekStart,end)
     .reduce((s,e)=>s+e.amount,0);
 }
 
-function miscIncomeSumForWeek(weekStart){
-  const end=weekEnd(weekStart);
+function miscIncomeSumForWeek(weekStart,endDate){
+  const end=minDate(weekEnd(weekStart),endDate || weekEnd(weekStart));
   return DB.miscIncome()
     .filter(e=>e.income_date>=weekStart && e.income_date<=end)
     .reduce((s,e)=>s+e.amount,0);
 }
 
-function leadsSoldForPaidWeek(weekStart){
-  const end=weekEnd(weekStart);
-  const clients=new Set(paidInvoiceRecords().filter(r=>r.week_start===weekStart).map(r=>r.client));
+function leadsSoldForInvoiceWeek(weekStart,invoiceRecords,endDate){
+  const end=minDate(weekEnd(weekStart),endDate || weekEnd(weekStart));
+  const clients=new Set(invoiceRecords.filter(r=>r.week_start===weekStart).map(r=>r.client));
   if(!clients.size) return 0;
   return DB.leads()
     .filter(e=>e.date>=weekStart && e.date<=end && clients.has(e.client))
     .reduce((s,e)=>s+e.leads,0);
 }
 
-function weeklyPLRows(year){
-  return weekKeySetForYear(year).map((weekStart,idx)=>{
-    const invoiceRevenue=paidInvoiceRecords()
+function weeklyPLRows(year,options={}){
+  const endDate=Object.prototype.hasOwnProperty.call(options,'endDate') ? options.endDate : endOfYear(year);
+  const assumePaid=!!options.assumePaid;
+  const records=invoiceRecordsThrough(options.invoiceRecords || paidInvoiceRecords(),minDate(endDate,endOfYear(year)));
+  return weekKeySetForYear(year,endDate,records).map((weekStart,idx)=>{
+    const periodEnd=minDate(weekEnd(weekStart),endDate);
+    const invoiceRevenue=records
       .filter(r=>r.week_start===weekStart)
       .reduce((s,r)=>s+r.total_due,0);
-    const miscRevenue=miscIncomeSumForWeek(weekStart);
+    const miscRevenue=miscIncomeSumForWeek(weekStart,periodEnd);
     const revenue=invoiceRevenue+miscRevenue;
-    const operatingExpenses=expenseSumForWeek(weekStart);
-    const stripeFees=stripeFeeSumForWeek(weekStart);
+    const operatingExpenses=expenseSumForWeek(weekStart,periodEnd);
+    const stripeFees=records
+      .filter(r=>r.week_start===weekStart)
+      .reduce((s,r)=>s+(assumePaid ? projectedStripeFeeForInvoice(r) : stripeFeeForInvoice(r)),0);
     const expenses=operatingExpenses+stripeFees;
-    const leads=leadsSoldForPaidWeek(weekStart);
+    const leads=leadsSoldForInvoiceWeek(weekStart,records,periodEnd);
     const netProfit=revenue-expenses;
     return {
       week_num:idx+1,
       week_start:weekStart,
-      week_end:weekEnd(weekStart),
+      week_end:periodEnd,
       leads,
       price_per_lead:leads ? invoiceRevenue/leads : 0,
       revenue,
@@ -1742,27 +1864,27 @@ function weeklyPLRows(year){
   });
 }
 
-function monthlyPLRows(year){
+function monthlyPLRows(year,options={}){
+  const endDate=Object.prototype.hasOwnProperty.call(options,'endDate') ? options.endDate : endOfYear(year);
+  const yearEnd=minDate(endDate,endOfYear(year));
+  const assumePaid=!!options.assumePaid;
+  const records=invoiceRecordsThrough(options.invoiceRecords || paidInvoiceRecords(),yearEnd);
+  const weekRows=weeklyPLRows(year,{...options,endDate:yearEnd,invoiceRecords:records});
   const rows=[];
   for(let month=0; month<12; month++){
-    const invoices=paidInvoiceRecords().filter(r=>{
-      const d=new Date(r.week_start+'T12:00:00');
-      return d.getFullYear()===year && d.getMonth()===month;
-    });
-    const weekRows=weeklyPLRows(year).filter(r=>{
-      const d=new Date(r.week_start+'T12:00:00');
-      return d.getFullYear()===year && d.getMonth()===month;
-    });
-    const operatingExpenses=expenseOccurrencesForYear(year).filter(e=>{
-      const d=new Date(e.occurrence_date+'T12:00:00');
-      return d.getFullYear()===year && d.getMonth()===month;
-    }).reduce((s,e)=>s+e.amount,0);
-    const stripeFees=invoices.reduce((s,r)=>s+stripeFeeForInvoice(r),0);
+    const monthStart=localDate(new Date(year,month,1,12));
+    const monthEnd=minDate(localDate(new Date(year,month+1,0,12)),yearEnd);
+    const inRange=monthEnd && monthEnd>=monthStart;
+    const invoices=inRange ? records.filter(r=>r.week_start>=monthStart && r.week_start<=monthEnd) : [];
+    const monthWeeks=weekRows.filter(r=>r.week_start>=monthStart && r.week_start<=monthEnd);
+    const operatingExpenses=inRange
+      ? expenseOccurrencesForRange(monthStart,monthEnd).reduce((s,e)=>s+e.amount,0)
+      : 0;
+    const stripeFees=invoices.reduce((s,r)=>s+(assumePaid ? projectedStripeFeeForInvoice(r) : stripeFeeForInvoice(r)),0);
     const expenses=operatingExpenses+stripeFees;
-    const miscIncome=DB.miscIncome().filter(e=>{
-      const d=new Date(e.income_date+'T12:00:00');
-      return d.getFullYear()===year && d.getMonth()===month;
-    }).reduce((s,e)=>s+e.amount,0);
+    const miscIncome=inRange
+      ? DB.miscIncome().filter(e=>e.income_date>=monthStart && e.income_date<=monthEnd).reduce((s,e)=>s+e.amount,0)
+      : 0;
     const invoiceRevenue=invoices.reduce((s,r)=>s+r.total_due,0);
     const revenue=invoiceRevenue+miscIncome;
     const netProfit=revenue-expenses;
@@ -1776,17 +1898,18 @@ function monthlyPLRows(year){
       expenses,
       net_profit:netProfit,
       margin:revenue ? netProfit/revenue : 0,
-      weeks:weekRows.length,
+      weeks:monthWeeks.length,
     });
   }
   return rows;
 }
 
-function transactionRows(year){
+function transactionRows(year,endDate=endOfYear(year)){
   const rows=[];
+  if(!endDate) return rows;
   paidInvoiceRecords().forEach(r=>{
     const date=(r.paid_at || r.generated_at || r.week_start).slice(0,10);
-    if(recordYear(date)!==year) return;
+    if(recordYear(date)!==year || date>endDate) return;
     rows.push({
       date,
       type:'Income',
@@ -1797,7 +1920,7 @@ function transactionRows(year){
   });
   stripeFeeRecords().forEach(r=>{
     const date=(r.paid_at || r.generated_at || r.week_start).slice(0,10);
-    if(recordYear(date)!==year) return;
+    if(recordYear(date)!==year || date>endDate) return;
     const fee=stripeFeeForInvoice(r);
     if(!fee) return;
     rows.push({
@@ -1808,7 +1931,7 @@ function transactionRows(year){
       source:'2.9% + $0.30',
     });
   });
-  expenseOccurrencesForYear(year).forEach(e=>{
+  expenseOccurrencesForRange(startOfYear(year),minDate(endDate,endOfYear(year))).forEach(e=>{
     rows.push({
       date:e.occurrence_date,
       type:'Expense',
@@ -1818,7 +1941,7 @@ function transactionRows(year){
     });
   });
   DB.miscIncome().forEach(r=>{
-    if(recordYear(r.income_date)!==year) return;
+    if(recordYear(r.income_date)!==year || r.income_date>endDate) return;
     rows.push({
       date:r.income_date,
       type:'Income',
@@ -1839,28 +1962,49 @@ function loadPLPage(){
   if(!DB.expensesAvailable) missing.push('expenses');
   if(!DB.miscIncomeAvailable) missing.push('miscellaneous income');
   const year=Number(document.getElementById('pl-year')?.value || new Date().getFullYear());
-  const weekly=weeklyPLRows(year);
-  const monthly=monthlyPLRows(year);
-  const transactions=transactionRows(year);
+  const actualEnd=plActualEndForYear(year);
+  const projectionEnd=plProjectionEndForYear(year);
+  const currentYear=recordYear(today());
+  const weekly=weeklyPLRows(year,{endDate:actualEnd});
+  const monthly=monthlyPLRows(year,{endDate:actualEnd});
+  const projectedWeekly=year===currentYear ? weeklyPLRows(year,{endDate:projectionEnd,invoiceRecords:projectedInvoiceRecords(),assumePaid:true}) : [];
+  const projectedMonthly=year===currentYear ? monthlyPLRows(year,{endDate:projectionEnd,invoiceRecords:projectedInvoiceRecords(),assumePaid:true}) : [];
+  const transactions=transactionRows(year,actualEnd);
   const totals=monthly.reduce((acc,r)=>{
     acc.revenue+=r.revenue; acc.invoice_revenue+=r.invoice_revenue; acc.misc_income+=r.misc_income;
     acc.operating_expenses+=r.operating_expenses; acc.stripe_fees+=r.stripe_fees;
     acc.expenses+=r.expenses; acc.net_profit+=r.net_profit;
     return acc;
   },{revenue:0,invoice_revenue:0,misc_income:0,operating_expenses:0,stripe_fees:0,expenses:0,net_profit:0});
+  const projectedTotals=projectedMonthly.reduce((acc,r)=>{
+    acc.revenue+=r.revenue; acc.invoice_revenue+=r.invoice_revenue; acc.misc_income+=r.misc_income;
+    acc.operating_expenses+=r.operating_expenses; acc.stripe_fees+=r.stripe_fees;
+    acc.expenses+=r.expenses; acc.net_profit+=r.net_profit;
+    return acc;
+  },{revenue:0,invoice_revenue:0,misc_income:0,operating_expenses:0,stripe_fees:0,expenses:0,net_profit:0});
+  const actualLabel=actualEnd ? `Actual through ${fmtD(actualEnd)}` : 'Actual through today';
   summary.innerHTML=`${missing.length ? `<div class="msg-info">Missing ${esc(missing.join(', '))} table${missing.length===1?'':'s'}. Run the updated Supabase schema to enable all P&L features.</div>` : ''}
+    <div class="sec-lbl">${esc(actualLabel)}</div>
     <div class="stat-bar">
       <div class="stat"><div class="stat-lbl">Gross revenue</div><div class="stat-val">${moneyFmt(totals.revenue)}</div></div>
       <div class="stat"><div class="stat-lbl">Invoice revenue</div><div class="stat-val">${moneyFmt(totals.invoice_revenue)}</div></div>
       <div class="stat"><div class="stat-lbl">Misc income</div><div class="stat-val">${moneyFmt(totals.misc_income)}</div></div>
       <div class="stat"><div class="stat-lbl">Stripe fees</div><div class="stat-val">${moneyFmt(totals.stripe_fees)}</div></div>
       <div class="stat"><div class="stat-lbl">Expenses</div><div class="stat-val">${moneyFmt(totals.expenses)}</div></div>
-      <div class="stat"><div class="stat-lbl">Net profit</div><div class="stat-val">${moneyFmt(totals.net_profit)}</div></div>
+      <div class="stat"><div class="stat-lbl">Net profit/loss</div><div class="stat-val">${moneyFmt(totals.net_profit)}</div></div>
       <div class="stat"><div class="stat-lbl">Net margin</div><div class="stat-val">${pctFmt(totals.revenue ? totals.net_profit/totals.revenue : 0)}</div></div>
-    </div>`;
+    </div>
+    ${year===currentYear ? `<div class="sec-lbl" style="margin-top:16px">Projected through ${fmtD(projectionEnd)}</div>
+    <div class="stat-bar">
+      <div class="stat"><div class="stat-lbl">Gross revenue</div><div class="stat-val">${moneyFmt(projectedTotals.revenue)}</div></div>
+      <div class="stat"><div class="stat-lbl">Invoice revenue</div><div class="stat-val">${moneyFmt(projectedTotals.invoice_revenue)}</div></div>
+      <div class="stat"><div class="stat-lbl">Expenses</div><div class="stat-val">${moneyFmt(projectedTotals.expenses)}</div></div>
+      <div class="stat"><div class="stat-lbl">Net profit/loss</div><div class="stat-val">${moneyFmt(projectedTotals.net_profit)}</div></div>
+      <div class="stat"><div class="stat-lbl">Net margin</div><div class="stat-val">${pctFmt(projectedTotals.revenue ? projectedTotals.net_profit/projectedTotals.revenue : 0)}</div></div>
+    </div>` : ''}`;
 
   out.innerHTML=`
-    <div class="sec-lbl">Monthly summary</div>
+    <div class="sec-lbl">Monthly P&amp;L through ${actualEnd ? fmtD(actualEnd) : 'today'}</div>
     <div class="pl-table-wrap"><table>
       <thead><tr><th>Month</th><th class="td-r">Gross revenue</th><th class="td-r">Invoice revenue</th><th class="td-r">Misc income</th><th class="td-r">Operating expenses</th><th class="td-r">Stripe fees</th><th class="td-r">Total expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th><th class="td-r">Weeks</th></tr></thead>
       <tbody>${monthly.map(r=>`<tr>
@@ -1871,7 +2015,7 @@ function loadPLPage(){
       </tr>`).join('')}</tbody>
     </table></div>
 
-    <div class="sec-lbl">Weekly P&amp;L</div>
+    <div class="sec-lbl">Weekly P&amp;L through ${actualEnd ? fmtD(actualEnd) : 'today'}</div>
     ${weekly.length ? `<div class="pl-table-wrap"><table>
       <thead><tr><th>Wk #</th><th>Week start</th><th>Week end</th><th class="td-r">Leads sold</th><th class="td-r">Price / lead</th><th class="td-r">Gross revenue</th><th class="td-r">Invoice revenue</th><th class="td-r">Misc income</th><th class="td-r">Operating expenses</th><th class="td-r">Stripe fees</th><th class="td-r">Total expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th></tr></thead>
       <tbody>${weekly.map(r=>`<tr>
@@ -1883,6 +2027,19 @@ function loadPLPage(){
         <td class="td-r ${r.net_profit<0?'neg':''}">${moneyFmt(r.net_profit)}</td><td class="td-r">${pctFmt(r.margin)}</td>
       </tr>`).join('')}</tbody>
     </table></div>` : '<div class="empty-state">No paid revenue, misc income, or expenses for this year.</div>'}
+
+    ${year===currentYear ? `<div class="sec-lbl">Projected weekly P&amp;L through ${fmtD(projectionEnd)}</div>
+    ${projectedWeekly.length ? `<div class="pl-table-wrap"><table>
+      <thead><tr><th>Wk #</th><th>Week start</th><th>Week end</th><th class="td-r">Leads sold</th><th class="td-r">Price / lead</th><th class="td-r">Gross revenue</th><th class="td-r">Invoice revenue</th><th class="td-r">Misc income</th><th class="td-r">Operating expenses</th><th class="td-r">Projected Stripe fees</th><th class="td-r">Total expenses</th><th class="td-r">Net profit</th><th class="td-r">Margin</th></tr></thead>
+      <tbody>${projectedWeekly.map(r=>`<tr>
+        <td>${r.week_num}</td><td>${fmtD(r.week_start)}</td><td>${fmtD(r.week_end)}</td>
+        <td class="td-r">${r.leads.toLocaleString()}</td><td class="td-r">$${r.price_per_lead.toFixed(4)}</td>
+        <td class="td-r">${moneyFmt(r.revenue)}</td><td class="td-r">${moneyFmt(r.invoice_revenue)}</td>
+        <td class="td-r">${moneyFmt(r.misc_income)}</td><td class="td-r">${moneyFmt(r.operating_expenses)}</td>
+        <td class="td-r">${moneyFmt(r.stripe_fees)}</td><td class="td-r">${moneyFmt(r.expenses)}</td>
+        <td class="td-r ${r.net_profit<0?'neg':''}">${moneyFmt(r.net_profit)}</td><td class="td-r">${pctFmt(r.margin)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<div class="empty-state">No active invoices, misc income, or expenses projected through the current week end.</div>'}` : ''}
 
     <div class="sec-lbl">Transaction history</div>
     ${transactions.length ? `<div class="pl-table-wrap"><table>
