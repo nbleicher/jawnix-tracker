@@ -8,4 +8,7 @@ window.JAWNIX_CONFIG = {
   invoiceRecordsTable: 'jawnix_invoice_records',
   expensesTable: 'jawnix_expenses',
   miscIncomeTable: 'jawnix_misc_income',
+  profilesTable: 'jawnix_profiles',
+  leadRequestsTable: 'jawnix_lead_requests',
+  invoicesBucket: 'jawnix-invoices',
 };

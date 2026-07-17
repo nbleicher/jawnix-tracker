@@ -120,6 +120,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
   .stat-bar{gap:14px}
 }
 </style>
+<link rel="stylesheet" href="/theme.css">
 </head>
 <body>
 
@@ -137,6 +138,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
   <button class="tab" onclick="tab('weekly')">Summary</button>
   <button class="tab" onclick="tab('history')">Invoice history</button>
   <button class="tab" onclick="tab('pl')">P&amp;L</button>
+  <button class="tab" onclick="tab('requests')">Requests</button>
   <button class="tab" onclick="tab('settings')">Settings</button>
 </div>
 
@@ -283,6 +285,28 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     </div>
 
     <div id="pl-out"><div class="msg-info">Loading…</div></div>
+  </div>
+
+  <!-- CUSTOMER REQUESTS -->
+  <div class="pane" id="pane-requests">
+    <div class="settings-box">
+      <div class="sec-lbl">Invite customer</div>
+      <div class="row2">
+        <div class="field"><label>Email</label><input type="email" id="invite-email" placeholder="customer@example.com"></div>
+        <div class="field"><label>First name</label><input type="text" id="invite-first-name" placeholder="First name"></div>
+      </div>
+      <div class="row2" style="max-width:480px">
+        <div class="field"><label>Last name</label><input type="text" id="invite-last-name" placeholder="Last name"></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn btn-primary" style="width:100%" onclick="inviteCustomer()">Send invite</button></div>
+      </div>
+      <div id="invite-msg"></div>
+    </div>
+    <div id="requests-summary"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:20px 0 12px">
+      <div class="sec-lbl" style="margin:0">Customer requests</div>
+      <label style="font-size:13px;text-transform:none"><input type="checkbox" id="show-fulfilled-requests" onchange="renderRequests()"> Show fulfilled</label>
+    </div>
+    <div id="requests-out"><div class="msg-info">Loading...</div></div>
   </div>
 
   <!-- SETTINGS -->
@@ -436,11 +460,13 @@ let _invoiceVoids = [];
 let _invoiceRecords = [];
 let _expenses = [];
 let _miscIncome = [];
+let _requests = [];
+let _customerProfiles = [];
 
 // ── Storage ───────────────────────────────────────────────────────────────────
-const LEAD_FIELDS = 'id,date,client,email,leads,rate,amount';
+const LEAD_FIELDS = 'id,date,client,email,leads,rate,amount,user_id';
 const INVOICE_VOID_FIELDS = 'week_start,client,voided_at';
-const INVOICE_RECORD_FIELDS = 'week_start,client,invoice_num,checkout_session_id,checkout_url,pdf_filename,total_due,payment_status,paid_at,generated_at,voided_at';
+const INVOICE_RECORD_FIELDS = 'week_start,client,invoice_num,checkout_session_id,checkout_url,pdf_filename,pdf_path,user_id,total_due,payment_status,paid_at,generated_at,voided_at';
 const EXPENSE_FIELDS = 'id,category,vendor,expense_date,billing_cycle,notes,amount,created_at,updated_at';
 const MISC_INCOME_FIELDS = 'id,income_date,notes,amount,created_at,updated_at';
 const DB = {
@@ -452,6 +478,9 @@ const DB = {
   invoiceRecordsTable:'jawnix_invoice_records',
   expensesTable:'jawnix_expenses',
   miscIncomeTable:'jawnix_misc_income',
+  profilesTable:'jawnix_profiles',
+  leadRequestsTable:'jawnix_lead_requests',
+  invoicesBucket:'jawnix-invoices',
   invoiceVoidsAvailable:true,
   invoiceRecordsAvailable:true,
   expensesAvailable:true,
@@ -472,6 +501,9 @@ const DB = {
     DB.invoiceRecordsTable = cfg.invoiceRecordsTable || DB.invoiceRecordsTable;
     DB.expensesTable = cfg.expensesTable || DB.expensesTable;
     DB.miscIncomeTable = cfg.miscIncomeTable || DB.miscIncomeTable;
+    DB.profilesTable = cfg.profilesTable || DB.profilesTable;
+    DB.leadRequestsTable = cfg.leadRequestsTable || DB.leadRequestsTable;
+    DB.invoicesBucket = cfg.invoicesBucket || DB.invoicesBucket;
   },
   fail: (error) => {
     if(error) throw new Error(error.message || 'Database request failed.');
@@ -503,6 +535,8 @@ const DB = {
     checkout_session_id:String(record.checkout_session_id || ''),
     checkout_url:String(record.checkout_url || ''),
     pdf_filename:String(record.pdf_filename || ''),
+    pdf_path:String(record.pdf_path || ''),
+    user_id:record.user_id || null,
     total_due:Number(record.total_due || 0),
     payment_status:String(record.payment_status || 'unpaid'),
     paid_at:record.paid_at || '',
@@ -548,6 +582,7 @@ const DB = {
       email:String(payload.email||'').trim(),
       leads,
       rate,
+      user_id:payload.user_id || null,
     };
     if(includeId && payload.id) record.id=Number(payload.id);
     return record;
@@ -813,6 +848,8 @@ const DB = {
       checkout_session_id:String(payload.checkout_session_id||'').trim(),
       checkout_url:String(payload.checkout_url||'').trim(),
       pdf_filename:String(payload.pdf_filename||'').trim(),
+      pdf_path:String(payload.pdf_path||'').trim(),
+      user_id:payload.user_id || null,
       total_due:parseFloat(payload.total_due||0),
       payment_status:String(payload.payment_status||'unpaid').trim(),
       paid_at:payload.paid_at || null,
@@ -1087,13 +1124,14 @@ function viewWeekly(weekStart){
   const entries = DB.leads().filter(e=>{const d=new Date(e.date+'T12:00:00');return d>=start&&d<=end;});
   const map = {};
   entries.forEach(e=>{
-    if(!map[e.client]) map[e.client]={client:e.client,email:e.email||'',week_start:weekStart,days:[],total_leads:0,total_amount:0,rate:e.rate,voided:false};
+    const key=customerKey(e);
+    if(!map[key]) map[key]={client:e.client,email:e.email||'',user_id:e.user_id||null,week_start:weekStart,days:[],total_leads:0,total_amount:0,rate:e.rate,voided:false};
     const d=new Date(e.date+'T12:00:00');
-    map[e.client].days.push({id:e.id,day:DAY_NAMES[d.getDay()],
+    map[key].days.push({id:e.id,day:DAY_NAMES[d.getDay()],
       date:d.toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'numeric'}),
-      leads:e.leads,amount:e.amount,rate:e.rate});
-    map[e.client].total_leads+=e.leads;
-    map[e.client].total_amount+=e.amount;
+      leads:e.leads,amount:e.amount,rate:e.rate,user_id:e.user_id||null});
+    map[key].total_leads+=e.leads;
+    map[key].total_amount+=e.amount;
   });
   Object.values(map).forEach(c=>{
     c.total_amount=Math.round(c.total_amount*100)/100;
@@ -1113,10 +1151,11 @@ function viewMonthly(dateValue){
   const entries=DB.leads().filter(e=>e.date>=monthStart && e.date<=monthEnd);
   const map={};
   entries.forEach(e=>{
-    if(!map[e.client]){
-      map[e.client]={client:e.client,entries:0,weeks:new Set(),total_leads:0,total_amount:0};
+    const key=customerKey(e);
+    if(!map[key]){
+      map[key]={client:e.client,user_id:e.user_id||null,entries:0,weeks:new Set(),total_leads:0,total_amount:0};
     }
-    const row=map[e.client];
+    const row=map[key];
     row.entries++;
     row.weeks.add(getSun(e.date));
     row.total_leads+=e.leads;
@@ -1202,6 +1241,7 @@ function pctFmt(v){ return Number.isFinite(v) ? (v*100).toFixed(1)+'%' : '0.0%';
 function fmtRate(r){ return parseFloat(r).toFixed(4); }
 function getSun(s){ const d=new Date(s+'T12:00:00'); d.setDate(d.getDate()-d.getDay()); return localDate(d); }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/'/g,'&#39;'); }
+function customerKey(row){ return row?.user_id ? `user:${row.user_id}` : `client:${row?.client || row?.name || ''}`; }
 function reloadActive(){ if(activeTab==='daily')loadDaily(); if(activeTab==='weekly')loadWeekly(); if(activeTab==='history')loadInvoiceHistory(); if(activeTab==='pl')loadPLPage(); }
 function refreshViews(){
   refreshToday(document.getElementById('log-date').value || today());
@@ -1226,6 +1266,12 @@ async function init(){
   document.getElementById('hdr-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   ['log-date','daily-date','weekly-date','set-week','set-void-week','pl-income-date','pl-expense-date'].forEach(id=>document.getElementById(id).value=t);
   try{
+    DB.init();
+    const {data:{user},error:authError}=await DB.client.auth.getUser();
+    if(authError || !user || user.app_metadata?.jawnix_role!=='admin'){
+      window.location.replace('/login.html');
+      return;
+    }
     await DB.load();
   }catch(err){
     document.getElementById('today-sum').innerHTML=`<div class="msg-err">Database unavailable: ${esc(err.message)}</div>`;
@@ -1247,7 +1293,7 @@ function refreshClients(){
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-const TAB_NAMES=['log','daily','weekly','history','pl','settings'];
+const TAB_NAMES=['log','daily','weekly','history','pl','requests','settings'];
 function tab(name){
   activeTab=name;
   TAB_NAMES.forEach((t,i)=>{
@@ -1258,10 +1304,43 @@ function tab(name){
   if(name==='weekly')   loadWeekly();
   if(name==='history')  loadInvoiceHistory();
   if(name==='pl')       loadPLPage();
+  if(name==='requests') loadRequests();
   if(name==='settings') loadSettingsTab();
 }
 
 // ── Log tab ───────────────────────────────────────────────────────────────────
+// ── Customer requests ───────────────────────────────────────────────────────
+function requestProfile(userId){ return _customerProfiles.find(profile=>profile.user_id===userId) || {}; }
+function customerName(profile){ return [profile.first_name,profile.last_name].filter(Boolean).join(' ') || profile.email || 'Customer'; }
+function requestStateChips(states){ return (states||[]).map(state=>`<span class="badge" style="background:var(--blue-lt);color:var(--blue);margin-right:4px">${esc(state)}</span>`).join('') || '<span style="color:var(--muted)">No states on file</span>'; }
+async function loadRequests(){
+  const out=document.getElementById('requests-out'); if(!out) return;
+  out.innerHTML='<div class="msg-info">Loading customer requests...</div>';
+  const [requestsRes,profilesRes]=await Promise.all([DB.client.from(DB.leadRequestsTable).select('*').order('created_at',{ascending:false}),DB.client.from(DB.profilesTable).select('*').order('created_at',{ascending:false})]);
+  if(requestsRes.error||profilesRes.error){out.innerHTML=`<div class="msg-err">Could not load requests: ${esc((requestsRes.error||profilesRes.error).message)}</div>`;return;}
+  _requests=requestsRes.data||[]; _customerProfiles=profilesRes.data||[]; renderRequests();
+}
+function renderRequests(){
+  const out=document.getElementById('requests-out'); if(!out) return;
+  const showFulfilled=document.getElementById('show-fulfilled-requests')?.checked, pending=_requests.filter(request=>request.status==='pending'), shown=showFulfilled?_requests:pending;
+  document.getElementById('requests-summary').innerHTML=`<div class="stat-bar"><div class="stat"><div class="stat-lbl">Customers</div><div class="stat-val">${_customerProfiles.length}</div></div><div class="stat"><div class="stat-lbl">Pending requests</div><div class="stat-val">${pending.length.toLocaleString()}</div></div><div class="stat"><div class="stat-lbl">Pending leads</div><div class="stat-val">${pending.reduce((sum,request)=>sum+Number(request.lead_count||0),0).toLocaleString()}</div></div></div>`;
+  if(!shown.length){out.innerHTML='<div class="empty-state">No customer requests to review.</div>';return;}
+  const lifetime=new Map(); _requests.filter(request=>request.status==='fulfilled').forEach(request=>lifetime.set(request.user_id,(lifetime.get(request.user_id)||0)+Number(request.lead_count||0)));
+  out.innerHTML=shown.map(request=>{const profile=requestProfile(request.user_id),drift=JSON.stringify((request.states_snapshot||[]).slice().sort())!==JSON.stringify((profile.licensed_states||[]).slice().sort());return `<div class="settings-box"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><strong>${esc(customerName(profile))}</strong><div style="font-size:12px;color:var(--muted);margin-top:3px">${esc(profile.email||'')} ${profile.phone?' | '+esc(profile.phone):''}</div></div><span class="badge ${request.status==='fulfilled'?'badge-ok':''}">${esc(request.status)}</span></div><div style="margin-top:12px"><strong>${Number(request.lead_count).toLocaleString()} leads</strong> <span style="color:var(--muted);font-size:12px">requested ${fmtD(String(request.created_at).slice(0,10))}</span></div><div style="margin-top:9px">${requestStateChips(request.states_snapshot)} ${drift?'<span class="badge" style="background:#fef3c7;color:#92400e">Profile changed</span>':''}</div><div style="margin-top:12px;font-size:12px;color:var(--muted)">Fulfilled lifetime: ${(lifetime.get(request.user_id)||0).toLocaleString()} leads</div>${request.status==='pending'?`<button class="btn btn-primary" style="margin-top:12px" onclick="fulfillRequest(${request.id})">Mark fulfilled</button>`:''}</div>`;}).join('');
+}
+async function inviteCustomer(){
+  const email=document.getElementById('invite-email').value.trim(),firstName=document.getElementById('invite-first-name').value.trim(),lastName=document.getElementById('invite-last-name').value.trim(),msg=document.getElementById('invite-msg');
+  if(!email){msg.innerHTML='<div class="msg-err">Enter an email address.</div>';return;}
+  try{const response=await fetch('/api/admin/invite-customer',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({email,firstName,lastName})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Invite failed.');msg.innerHTML=`<div class="msg-ok">Invite sent to ${esc(data.email)}.</div>`;document.getElementById('invite-email').value='';document.getElementById('invite-first-name').value='';document.getElementById('invite-last-name').value='';await loadRequests();}catch(error){msg.innerHTML=`<div class="msg-err">${esc(error.message)}</div>`;}
+}
+async function fulfillRequest(id){
+  const request=_requests.find(item=>Number(item.id)===Number(id)); if(!request||request.status!=='pending')return;
+  const profile=requestProfile(request.user_id),date=prompt('Fulfillment date (YYYY-MM-DD):',today()); if(!date)return;
+  const rate=prompt('Rate per lead:',String(DB.settings().default_rate||defaultRate)); if(rate===null)return; const numericRate=Number(rate);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(numericRate)||numericRate<=0){alert('Enter a valid date and positive rate.');return;}
+  try{await DB.createLead({date,client:customerName(profile),email:profile.email||'',leads:Number(request.lead_count),rate:numericRate,user_id:request.user_id});const {error}=await DB.client.from(DB.leadRequestsTable).update({status:'fulfilled',fulfilled_at:new Date().toISOString()}).eq('id',request.id).eq('status','pending');DB.fail(error);await loadRequests();refreshClients();refreshViews();}catch(error){alert('Could not fulfill request: '+error.message);}
+}
+
 function calcAmt(){
   const l=parseFloat(document.getElementById('log-leads').value)||0;
   const r=parseFloat(document.getElementById('log-rate').value)||0;
@@ -1422,7 +1501,7 @@ function loadWeekly(){
   const monthLeads=month.clients.reduce((s,c)=>s+c.billable_leads,0);
   const monthAmt=month.clients.reduce((s,c)=>s+c.billable_amount,0);
   el.innerHTML=`
-    <div class="sec-lbl">Weekly view</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div class="sec-lbl">Weekly view</div><button class="btn btn-primary" id="batch-invoices-btn" onclick="generateAllInvoices()">Generate all invoices</button></div>
     <div class="stat-bar">
       <div class="stat"><div class="stat-lbl">Clients</div><div class="stat-val">${billedClients.length}</div></div>
       <div class="stat"><div class="stat-lbl">Entries</div><div class="stat-val">${weekEntries.toLocaleString()}</div></div>
@@ -1824,17 +1903,17 @@ function miscIncomeSumForWeek(weekStart,endDate){
 
 function leadsSoldForInvoiceWeek(weekStart,invoiceRecords,endDate){
   const end=minDate(weekEnd(weekStart),endDate || weekEnd(weekStart));
-  const clients=new Set(invoiceRecords.filter(r=>r.week_start===weekStart).map(r=>r.client));
-  if(!clients.size) return 0;
+  const customers=new Set(invoiceRecords.filter(r=>r.week_start===weekStart).map(customerKey));
+  if(!customers.size) return 0;
   return DB.leads()
-    .filter(e=>e.date>=weekStart && e.date<=end && clients.has(e.client))
+    .filter(e=>e.date>=weekStart && e.date<=end && customers.has(customerKey(e)))
     .reduce((s,e)=>s+e.leads,0);
 }
 
-function billableLeadTotalsForWeek(weekStart,endDate,excludedClients=new Set()){
+function billableLeadTotalsForWeek(weekStart,endDate,excludedCustomers=new Set()){
   const end=minDate(weekEnd(weekStart),endDate || weekEnd(weekStart));
   return DB.leads()
-    .filter(e=>e.date>=weekStart && e.date<=end && !excludedClients.has(e.client) && !DB.isInvoiceVoided(e.client,weekStart))
+    .filter(e=>e.date>=weekStart && e.date<=end && !excludedCustomers.has(customerKey(e)) && !DB.isInvoiceVoided(e.client,weekStart))
     .reduce((acc,e)=>{
       acc.leads+=e.leads;
       acc.amount+=e.amount;
@@ -1850,8 +1929,8 @@ function weeklyPLRows(year,options={}){
   return weekKeySetForYear(year,endDate,records,{leadWeeks:leadRevenueWeeks}).map((weekStart,idx)=>{
     const periodEnd=minDate(weekEnd(weekStart),endDate);
     const weekRecords=records.filter(r=>r.week_start===weekStart);
-    const invoicedClients=new Set(weekRecords.map(r=>r.client));
-    const leadProjection=leadRevenueWeeks.has(weekStart) ? billableLeadTotalsForWeek(weekStart,periodEnd,invoicedClients) : null;
+    const invoicedCustomers=new Set(weekRecords.map(customerKey));
+    const leadProjection=leadRevenueWeeks.has(weekStart) ? billableLeadTotalsForWeek(weekStart,periodEnd,invoicedCustomers) : null;
     const invoiceRevenue=weekRecords.reduce((s,r)=>s+r.total_due,0)+(leadProjection ? Math.round(leadProjection.amount*100)/100 : 0);
     const miscRevenue=miscIncomeSumForWeek(weekStart,periodEnd);
     const revenue=invoiceRevenue+miscRevenue;
@@ -2211,7 +2290,7 @@ function openInvModal(clientIdx){
     return;
   }
   const label= window._weeklyLabel;
-  _modalData = {client:c.client, email:c.email, weekStart:c.week_start, weekLabel:label, days:c.days};
+  _modalData = {client:c.client, email:c.email, user_id:c.user_id||null, weekStart:c.week_start, weekLabel:label, days:c.days};
 
   document.getElementById('m-client').textContent = c.client;
   document.getElementById('m-week').textContent   = label;
@@ -2264,51 +2343,48 @@ function filenameFromDisposition(disposition){
   return match ? match[1] : 'invoice.pdf';
 }
 
+function buildInvoicePayloadFor(clientData,invoiceNum,invoiceDate){
+  const fmtDate=new Date(invoiceDate+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'});
+  return {invoiceNum,invoiceDate:fmtDate,weekRange:clientData.weekLabel||window._weeklyLabel,weekStart:clientData.weekStart||clientData.week_start,clientName:clientData.client,clientEmail:clientData.email||'',days:clientData.days.map(day=>({day:day.day,date:day.date,leads:day.leads,amount:day.amount})),totalDue:Math.round(clientData.days.reduce((sum,day)=>sum+day.amount,0)*100)/100};
+}
+
+async function generateInvoiceFromPayload(payload,clientData,options={}){
+  const res=await fetch('/api/generate-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!res.ok){let detail='Invoice generation failed.';try{detail=(await res.json()).error||detail;}catch(_err){}throw new Error(detail);}
+  const blob=await res.blob();
+  const checkoutUrl=res.headers.get('X-Stripe-Checkout-Url');
+  const checkoutSessionId=res.headers.get('X-Stripe-Checkout-Session-Id')||'';
+  const pdfFilename=filenameFromDisposition(res.headers.get('Content-Disposition'));
+  const userId=clientData.user_id||clientData.days?.find(day=>day.user_id)?.user_id||null;
+  let pdfPath='';
+  if(userId){
+    pdfPath=`${userId}/${pdfFilename}`;
+    const {error}=await DB.client.storage.from(DB.invoicesBucket).upload(pdfPath,blob,{contentType:'application/pdf',upsert:true});
+    if(error) throw new Error('Invoice PDF generated but could not be published to the customer inbox: '+error.message);
+  }
+  if(options.download){
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=pdfFilename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+  }
+  await DB.saveInvoiceRecord({week_start:payload.weekStart,client:payload.clientName,invoice_num:payload.invoiceNum,checkout_session_id:checkoutSessionId,checkout_url:checkoutUrl||'',pdf_filename:pdfFilename,pdf_path:pdfPath,user_id:userId,total_due:payload.totalDue,payment_status:'unpaid'});
+  await bumpInvNum();
+  return {checkoutUrl,pdfFilename,pdfPath};
+}
+
 async function generateInvoicePDF(){
-  const payload = buildInvPayload();
-  if(!payload) return;
+  const payload=buildInvPayload(); if(!payload)return;
   const btn=document.getElementById('m-generate-btn');
   const badge=document.getElementById('m-copy-badge');
   btn.disabled=true;
   btn.textContent='Generating...';
   badge.style.display='none';
   try{
-    const res=await fetch('/api/generate-invoice',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(payload),
-    });
-    if(!res.ok){
-      let detail='Invoice generation failed.';
-      try{ detail=(await res.json()).error || detail; }catch(_err){}
-      throw new Error(detail);
-    }
-    const blob=await res.blob();
-    const checkoutUrl=res.headers.get('X-Stripe-Checkout-Url');
-    const checkoutSessionId=res.headers.get('X-Stripe-Checkout-Session-Id') || '';
-    const pdfFilename=filenameFromDisposition(res.headers.get('Content-Disposition'));
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download=pdfFilename;
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
-    await DB.saveInvoiceRecord({
-      week_start:_modalData.weekStart,
-      client:_modalData.client,
-      invoice_num:payload.invoiceNum,
-      checkout_session_id:checkoutSessionId,
-      checkout_url:checkoutUrl || '',
-      pdf_filename:pdfFilename,
-      total_due:payload.totalDue,
-      payment_status:'unpaid',
-    });
+    const result=await generateInvoiceFromPayload(payload,_modalData,{download:true});
     refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value || 'all');
-    await bumpInvNum();
     document.getElementById('m-inv-num').value = nextInvNum();
     rebuildInvJSON();
-    if(checkoutUrl){
+    if(result.checkoutUrl){
       const payLink=document.getElementById('m-pay-link');
-      payLink.href=checkoutUrl;
+      payLink.href=result.checkoutUrl;
       payLink.style.display='inline-flex';
     }
     badge.textContent='PDF downloaded';
@@ -2326,6 +2402,23 @@ async function generateInvoicePDF(){
     btn.disabled=false;
     btn.textContent='Download PDF';
   }
+}
+
+async function generateAllInvoices(){
+  const clients=(window._weeklyClients||[]).filter(client=>!client.voided);
+  const button=document.getElementById('batch-invoices-btn');
+  if(!clients.length){alert('There are no active clients to invoice for this week.');return;}
+  if(!confirm(`Generate invoices for ${clients.length} client${clients.length===1?'':'s'}? Existing invoices for this week will be skipped.`))return;
+  button.disabled=true; let success=0,skipped=0; const failures=[];
+  for(let index=0;index<clients.length;index++){
+    const clientData=clients[index];button.textContent=`Generating ${index+1} of ${clients.length}...`;
+    if(invoiceRecordsFor(clientData.client,clientData.week_start,clientData.user_id).some(record=>!record.voided_at)){skipped++;continue;}
+    try{const payload=buildInvoicePayloadFor({...clientData,weekLabel:window._weeklyLabel,weekStart:clientData.week_start},nextInvNum(),today());await generateInvoiceFromPayload(payload,clientData,{download:false});success++;}catch(error){failures.push(`${clientData.client}: ${error.message}`);}
+  }
+  button.disabled=false;button.textContent='Generate all invoices';
+  refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value||'all');
+  loadWeekly();
+  alert(`Generated ${success} invoice${success===1?'':'s'}${skipped?`, skipped ${skipped} existing invoice${skipped===1?'':'s'}`:''}${failures.length?`. Failed: ${failures.join('; ')}`:'.'}`);
 }
 
 function closeInvModal(e){
@@ -2371,12 +2464,16 @@ function loadClientEditor(){
   document.getElementById('set-client-email').value=client?.email || '';
 }
 
-function invoiceRecordsFor(client,weekStart){
-  return DB.invoiceRecords().filter(r=>r.client===client && r.week_start===weekStart);
+function invoiceRecordsFor(client,weekStart,userId=null){
+  return DB.invoiceRecords().filter(r=>{
+    if(r.week_start!==weekStart) return false;
+    if(userId) return r.user_id===userId;
+    return r.client===client;
+  });
 }
 
-function activeCheckoutSessionIds(client,weekStart){
-  return invoiceRecordsFor(client,weekStart)
+function activeCheckoutSessionIds(client,weekStart,userId=null){
+  return invoiceRecordsFor(client,weekStart,userId)
     .filter(r=>!r.voided_at && r.checkout_session_id)
     .map(r=>r.checkout_session_id);
 }
@@ -2587,6 +2684,7 @@ async function clearData(){
 async function signOut(){
   try{
     await fetch('/api/auth/logout',{method:'POST',credentials:'same-origin'});
+    if(DB.client) await DB.client.auth.signOut();
   }finally{
     window.location.assign('/login.html');
   }

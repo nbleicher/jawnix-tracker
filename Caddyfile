@@ -39,6 +39,15 @@
 		redir * /login.html 308
 	}
 
+	handle /portal {
+		redir * /portal.html 308
+	}
+
+	@public_portal path /portal.html /portal-accept.html /config.js /theme.css
+	handle @public_portal {
+		file_server
+	}
+
 	handle {
 		@no_session not header Cookie *jawnix_session=*
 		redir @no_session /login.html 303

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jawnix Customer Portal</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/config.js"></script>
+<link rel="stylesheet" href="/theme.css">
+</head>
+<body>
+<main id="auth-view" class="auth-page">
+  <section class="auth-shell">
+    <div class="auth-brand"><div class="logo">JAWN<span>IX</span></div><p>Customer portal</p></div>
+    <div class="auth-card">
+      <h1>Sign in</h1>
+      <div class="error" id="auth-error" style="display:none"></div>
+      <form id="auth-form">
+        <div class="field"><label for="auth-email">Email</label><input id="auth-email" type="email" autocomplete="email" required autofocus></div>
+        <div class="field"><label for="auth-password">Password</label><input id="auth-password" type="password" autocomplete="current-password" required></div>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+      </form>
+      <a class="auth-link" href="#" id="forgot-password">Forgot password?</a>
+    </div>
+  </section>
+</main>
+
+<main id="portal-view" class="portal-shell" hidden>
+  <aside class="portal-sidebar">
+    <div><div class="logo">JAWN<span>IX</span></div><small>Customer portal</small></div>
+    <nav class="portal-nav">
+      <button class="active" data-pane="dashboard">Dashboard</button>
+      <button data-pane="invoices">Invoices <span class="nav-count" id="unpaid-count" hidden>0</span></button>
+      <button data-pane="profile">Profile</button>
+    </nav>
+    <div class="portal-user"><div id="portal-user-email"></div><button type="button" id="sign-out">Sign out</button></div>
+  </aside>
+  <section class="portal-main">
+    <section class="portal-pane active" id="portal-dashboard">
+      <div class="portal-heading"><div><h1>Lead requests</h1><p>Request the lead volume your team needs.</p></div></div>
+      <div class="portal-stats">
+        <div class="portal-stat"><div class="label">Pending requests</div><div class="value" id="stat-pending-requests">0</div></div>
+        <div class="portal-stat"><div class="label">Leads pending</div><div class="value" id="stat-pending-leads">0</div></div>
+        <div class="portal-stat"><div class="label">Leads fulfilled</div><div class="value" id="stat-fulfilled-leads">0</div></div>
+      </div>
+      <div class="portal-grid">
+        <section class="portal-card">
+          <h2>Request new leads</h2>
+          <form id="request-form">
+            <div class="field"><label for="request-count">Number of leads</label><input id="request-count" type="number" min="1" max="2147483647" step="1" inputmode="numeric" required></div>
+            <div class="quick-picks" id="quick-picks"></div>
+            <div class="field"><label>Licensed and appointed states</label><div class="state-chips" id="request-states"></div></div>
+            <a href="#" id="edit-states">Edit states</a>
+            <button class="btn btn-primary" type="submit" style="margin-top:16px">Submit request</button>
+          </form>
+          <div id="request-message"></div>
+        </section>
+        <section class="portal-card"><h2>Your requests</h2><div id="request-list"></div></section>
+      </div>
+    </section>
+
+    <section class="portal-pane" id="portal-invoices">
+      <div class="portal-heading"><div><h1>Invoices</h1><p>View and pay invoices issued to your account.</p></div></div>
+      <section class="portal-card"><div id="invoice-list"></div></section>
+    </section>
+
+    <section class="portal-pane" id="portal-profile">
+      <div class="portal-heading"><div><h1>Profile</h1><p>Keep your contact and appointment information current.</p></div><a href="/" id="admin-link" class="btn" hidden>Go to admin tracker</a></div>
+      <div id="profile-banner" class="portal-banner" hidden>Complete your profile before requesting leads.</div>
+      <form class="portal-card" id="profile-form">
+        <div class="profile-grid">
+          <div class="field"><label for="profile-first-name">First name</label><input id="profile-first-name" required></div>
+          <div class="field"><label for="profile-last-name">Last name</label><input id="profile-last-name" required></div>
+          <div class="field wide"><label for="profile-email">Email</label><input id="profile-email" readonly></div>
+          <div class="field wide"><label for="profile-phone">Phone</label><input id="profile-phone" type="tel" autocomplete="tel"></div>
+        </div>
+        <div class="states-toolbar"><strong>Licensed and appointed states (<span id="state-count">0</span>)</strong><span><button type="button" id="select-all-states">Select all</button> <button type="button" id="clear-states">Clear</button></span></div>
+        <div class="states-grid" id="states-grid"></div>
+        <button class="btn btn-primary" type="submit" style="margin-top:20px">Save profile</button>
+        <div id="profile-message"></div>
+      </form>
+    </section>
+  </section>
+</main>
+
+<script>
+const STATES=[['AL','Alabama'],['AK','Alaska'],['AZ','Arizona'],['AR','Arkansas'],['CA','California'],['CO','Colorado'],['CT','Connecticut'],['DE','Delaware'],['FL','Florida'],['GA','Georgia'],['HI','Hawaii'],['ID','Idaho'],['IL','Illinois'],['IN','Indiana'],['IA','Iowa'],['KS','Kansas'],['KY','Kentucky'],['LA','Louisiana'],['ME','Maine'],['MD','Maryland'],['MA','Massachusetts'],['MI','Michigan'],['MN','Minnesota'],['MS','Mississippi'],['MO','Missouri'],['MT','Montana'],['NE','Nebraska'],['NV','Nevada'],['NH','New Hampshire'],['NJ','New Jersey'],['NM','New Mexico'],['NY','New York'],['NC','North Carolina'],['ND','North Dakota'],['OH','Ohio'],['OK','Oklahoma'],['OR','Oregon'],['PA','Pennsylvania'],['RI','Rhode Island'],['SC','South Carolina'],['SD','South Dakota'],['TN','Tennessee'],['TX','Texas'],['UT','Utah'],['VT','Vermont'],['VA','Virginia'],['WA','Washington'],['WV','West Virginia'],['WI','Wisconsin'],['WY','Wyoming'],['DC','District of Columbia']];
+const cfg=window.JAWNIX_CONFIG||{};
+const client=window.supabase?.createClient?.(cfg.supabaseUrl,cfg.supabaseAnonKey);
+let currentUser=null, profile=null, requests=[], invoices=[];
+const esc=value=>String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const formatNumber=value=>Number(value||0).toLocaleString();
+const formatDate=value=>new Date(value).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+const showMessage=(id,message,type='ok')=>{const el=document.getElementById(id);el.innerHTML='<div class="msg-'+(type==='error'?'err':'ok')+'">'+esc(message)+'</div>';};
+
+function renderStates(){
+  const selected=new Set(profile?.licensed_states||[]);
+  document.getElementById('states-grid').innerHTML=STATES.map(([code,name])=>'<label class="state-check"><input type="checkbox" value="'+code+'" '+(selected.has(code)?'checked':'')+'><span><strong>'+code+'</strong> '+name+'</span></label>').join('');
+  document.querySelectorAll('#states-grid input').forEach(input=>input.addEventListener('change',updateStateCount));
+  updateStateCount();
+}
+function selectedStates(){return [...document.querySelectorAll('#states-grid input:checked')].map(input=>input.value);}
+function updateStateCount(){document.getElementById('state-count').textContent=selectedStates().length;}
+function profileName(){return [profile?.first_name,profile?.last_name].filter(Boolean).join(' ')||currentUser?.email||'Customer';}
+function stateChips(states){return states?.length?states.map(code=>'<span class="state-chip">'+esc(code)+'</span>').join(''):'<span style="color:var(--muted);font-size:13px">No states selected</span>';}
+
+function renderDashboard(){
+  const pending=requests.filter(r=>r.status==='pending');
+  const fulfilled=requests.filter(r=>r.status==='fulfilled');
+  document.getElementById('stat-pending-requests').textContent=formatNumber(pending.length);
+  document.getElementById('stat-pending-leads').textContent=formatNumber(pending.reduce((sum,r)=>sum+Number(r.lead_count||0),0));
+  document.getElementById('stat-fulfilled-leads').textContent=formatNumber(fulfilled.reduce((sum,r)=>sum+Number(r.lead_count||0),0));
+  const states=profile?.licensed_states||[];
+  document.getElementById('request-states').innerHTML=stateChips(states);
+  const submit=document.querySelector('#request-form button[type=submit]');
+  submit.disabled=!states.length;
+  if(!states.length) document.getElementById('request-message').innerHTML='<div class="msg-info">Add at least one licensed and appointed state to submit a request.</div>';
+  const list=document.getElementById('request-list');
+  list.innerHTML=requests.length?requests.map(r=>'<div class="request-row"><div class="request-top"><div><div class="request-title">'+formatNumber(r.lead_count)+' leads</div><div class="request-date">'+formatDate(r.created_at)+'</div></div><span class="status '+esc(r.status)+'">'+esc(r.status)+'</span></div><div class="request-meta" style="margin-top:10px">'+stateChips(r.states_snapshot)+'</div>'+(r.status==='pending'?'<button class="btn btn-sm" data-cancel="'+r.id+'" style="margin-top:10px">Cancel request</button>':'')+'</div>').join(''):'<div class="empty-state">No lead requests yet.</div>';
+  list.querySelectorAll('[data-cancel]').forEach(button=>button.addEventListener('click',()=>cancelRequest(button.dataset.cancel)));
+}
+
+function renderInvoices(){
+  const unpaid=invoices.filter(i=>i.payment_status==='unpaid').length;
+  const badge=document.getElementById('unpaid-count'); badge.textContent=unpaid; badge.hidden=!unpaid;
+  const list=document.getElementById('invoice-list');
+  list.innerHTML=invoices.length?invoices.map((invoice,index)=>'<div class="invoice-row"><div class="invoice-top"><div><div class="invoice-title">'+esc(invoice.invoice_num)+'</div><div class="invoice-date">'+esc(weekLabel(invoice.week_start))+'</div></div><div style="text-align:right"><strong>$'+Number(invoice.total_due||0).toFixed(2)+'</strong><br><span class="status '+esc(invoice.payment_status)+'">'+esc(invoice.payment_status.replaceAll('_',' '))+'</span></div></div><div class="invoice-actions">'+(invoice.payment_status==='unpaid'&&safeUrl(invoice.checkout_url)?'<a class="btn btn-primary" href="'+esc(safeUrl(invoice.checkout_url))+'" target="_blank" rel="noopener">Pay now</a>':'')+(invoice.pdf_path?'<button class="btn" data-download="'+index+'">Download PDF</button>':'')+'</div></div>').join(''):'<div class="empty-state">Your invoices will appear here when they are issued.</div>';
+  list.querySelectorAll('[data-download]').forEach(button=>button.addEventListener('click',()=>downloadInvoice(invoices[Number(button.dataset.download)])));
+}
+function weekLabel(start){const a=new Date(start+'T12:00:00'),b=new Date(start+'T12:00:00');b.setDate(b.getDate()+6);return a.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' - '+b.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
+function safeUrl(value){try{const url=new URL(value);return /^https:$/.test(url.protocol)?url.href:'';}catch{return '';}}
+
+function renderProfile(){
+  document.getElementById('profile-first-name').value=profile?.first_name||'';
+  document.getElementById('profile-last-name').value=profile?.last_name||'';
+  document.getElementById('profile-email').value=currentUser?.email||profile?.email||'';
+  document.getElementById('profile-phone').value=profile?.phone||'';
+  document.getElementById('profile-banner').hidden=Boolean(profile?.licensed_states?.length);
+  document.getElementById('admin-link').hidden=currentUser?.app_metadata?.jawnix_role!=='admin';
+  renderStates();
+}
+
+async function loadData(){
+  const [profileRes,requestRes,invoiceRes]=await Promise.all([
+    client.from(cfg.profilesTable||'jawnix_profiles').select('*').eq('user_id',currentUser.id).maybeSingle(),
+    client.from(cfg.leadRequestsTable||'jawnix_lead_requests').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false}),
+    client.from(cfg.invoiceRecordsTable||'jawnix_invoice_records').select('week_start,client,invoice_num,checkout_url,pdf_filename,pdf_path,total_due,payment_status,generated_at').eq('user_id',currentUser.id).is('voided_at',null).order('generated_at',{ascending:false})
+  ]);
+  if(profileRes.error||requestRes.error||invoiceRes.error) throw new Error((profileRes.error||requestRes.error||invoiceRes.error).message);
+  profile=profileRes.data||{user_id:currentUser.id,email:currentUser.email,first_name:'',last_name:'',phone:'',licensed_states:[]};
+  requests=requestRes.data||[]; invoices=invoiceRes.data||[];
+  renderDashboard(); renderInvoices(); renderProfile();
+  if(!profileRes.data?.licensed_states?.length) activatePane('profile');
+}
+
+async function submitRequest(event){
+  event.preventDefault();
+  const count=Number(document.getElementById('request-count').value);
+  if(!Number.isSafeInteger(count)||count<1||count>2147483647){showMessage('request-message','Enter a whole number of leads between 1 and 2,147,483,647.','error');return;}
+  if(!(profile?.licensed_states||[]).length){activatePane('profile');return;}
+  const button=event.submitter;button.disabled=true;
+  const {error}=await client.from(cfg.leadRequestsTable||'jawnix_lead_requests').insert({user_id:currentUser.id,lead_count:count});
+  button.disabled=false;
+  if(error){showMessage('request-message',error.message,'error');return;}
+  document.getElementById('request-count').value='';showMessage('request-message','Lead request submitted.');await loadData();
+}
+async function cancelRequest(id){
+  if(!window.confirm('Cancel this pending request?')) return;
+  const {error}=await client.from(cfg.leadRequestsTable||'jawnix_lead_requests').delete().eq('id',id).eq('user_id',currentUser.id).eq('status','pending');
+  if(error){showMessage('request-message',error.message,'error');return;} await loadData();
+}
+async function saveProfile(event){
+  event.preventDefault();
+  const record={user_id:currentUser.id,email:currentUser.email,first_name:document.getElementById('profile-first-name').value.trim(),last_name:document.getElementById('profile-last-name').value.trim(),phone:document.getElementById('profile-phone').value.trim(),licensed_states:selectedStates(),updated_at:new Date().toISOString()};
+  const {data,error}=await client.from(cfg.profilesTable||'jawnix_profiles').upsert(record,{onConflict:'user_id'}).select().single();
+  if(error){showMessage('profile-message',error.message,'error');return;} profile=data;showMessage('profile-message','Profile saved.');renderDashboard();renderProfile();
+}
+async function downloadInvoice(invoice){
+  const button=[...document.querySelectorAll('[data-download]')].find(el=>invoices[Number(el.dataset.download)]===invoice);if(button){button.disabled=true;button.textContent='Preparing...';}
+  const {data,error}=await client.storage.from(cfg.invoicesBucket||'jawnix-invoices').createSignedUrl(invoice.pdf_path,60);
+  if(button){button.disabled=false;button.textContent='Download PDF';}
+  if(error){alert(error.message);return;} window.open(data.signedUrl,'_blank','noopener');
+}
+function activatePane(name){document.querySelectorAll('.portal-pane').forEach(el=>el.classList.toggle('active',el.id==='portal-'+name));document.querySelectorAll('.portal-nav button').forEach(el=>el.classList.toggle('active',el.dataset.pane===name));}
+function showAuthError(message){const box=document.getElementById('auth-error');box.textContent=message;box.style.display='block';}
+
+document.getElementById('auth-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;const {error}=await client.auth.signInWithPassword({email:document.getElementById('auth-email').value.trim(),password:document.getElementById('auth-password').value});button.disabled=false;if(error){showAuthError(error.message);return;}await boot();});
+document.getElementById('forgot-password').addEventListener('click',async event=>{event.preventDefault();const email=document.getElementById('auth-email').value.trim();if(!email){showAuthError('Enter your email address first.');return;}const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin+'/portal-accept.html'});if(error)showAuthError(error.message);else showAuthError('Check your email for a password reset link.');});
+document.getElementById('request-form').addEventListener('submit',submitRequest);
+document.getElementById('profile-form').addEventListener('submit',saveProfile);
+document.getElementById('quick-picks').innerHTML=[25,50,100,250,500,1000].map(n=>'<button type="button" data-count="'+n+'">'+n.toLocaleString()+'</button>').join('');
+document.querySelectorAll('[data-count]').forEach(button=>button.addEventListener('click',()=>document.getElementById('request-count').value=button.dataset.count));
+document.getElementById('edit-states').addEventListener('click',event=>{event.preventDefault();activatePane('profile');});
+document.getElementById('select-all-states').addEventListener('click',()=>{document.querySelectorAll('#states-grid input').forEach(input=>input.checked=true);updateStateCount();});
+document.getElementById('clear-states').addEventListener('click',()=>{document.querySelectorAll('#states-grid input').forEach(input=>input.checked=false);updateStateCount();});
+document.querySelectorAll('.portal-nav button').forEach(button=>button.addEventListener('click',()=>activatePane(button.dataset.pane)));
+document.getElementById('sign-out').addEventListener('click',async()=>{await client.auth.signOut();window.location.reload();});
+async function boot(){if(!client){showAuthError('Portal configuration is unavailable.');return;}const {data:{user}}=await client.auth.getUser();if(!user){return;}currentUser=user;document.getElementById('auth-view').hidden=true;document.getElementById('portal-view').hidden=false;document.getElementById('portal-user-email').textContent=user.email||'';try{await loadData();}catch(error){alert('Could not load your portal: '+error.message);}}
+boot();
+</script>
+</body>
+</html>
