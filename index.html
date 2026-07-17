@@ -122,10 +122,13 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 </style>
 <link rel="stylesheet" href="/theme.css">
 </head>
-<body>
+<body class="admin-page">
 
 <div class="header">
-  <div><div class="logo">JAWN<span>IX</span></div><div class="header-sub">Lead Tracker &amp; Invoice Builder</div></div>
+  <div class="brand-block">
+    <div class="brand-mark">J</div>
+    <div><div class="logo">JAWN<span>IX</span></div><div class="header-sub">Lead Tracker &amp; Invoice Builder</div></div>
+  </div>
   <div class="header-right">
     <div class="header-sub" id="hdr-date"></div>
     <button class="logout-btn" type="button" onclick="signOut()">Sign out</button>
@@ -146,32 +149,36 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <!-- LOG -->
   <div class="pane active" id="pane-log">
+    <div class="pane-title"><div><div class="sec-lbl">Today</div><h1>Lead entry</h1></div></div>
     <div id="today-sum"></div>
     <hr>
-    <div class="sec-lbl">New entry</div>
-    <div class="row2">
-      <div class="field"><label>Date</label><input type="date" id="log-date"></div>
-      <div class="field"><label>Client</label>
-        <input type="text" id="log-client" list="cl-list" autocomplete="off" placeholder="Select or type" oninput="onClient()">
-        <datalist id="cl-list"></datalist>
+    <section class="entry-panel">
+      <div class="sec-lbl">New entry</div>
+      <div class="row2">
+        <div class="field"><label>Date</label><input type="date" id="log-date"></div>
+        <div class="field"><label>Client</label>
+          <input type="text" id="log-client" list="cl-list" autocomplete="off" placeholder="Select or type" oninput="onClient()">
+          <datalist id="cl-list"></datalist>
+        </div>
       </div>
-    </div>
-    <div class="field" id="email-wrap" style="display:none">
-      <label>Email <span style="font-weight:400;text-transform:none;font-size:11px">(new client)</span></label>
-      <input type="email" id="log-email" placeholder="client@example.com">
-    </div>
-    <div class="row2">
-      <div class="field"><label>Leads sent</label><input type="number" id="log-leads" placeholder="50000" min="1" step="1000" oninput="calcAmt()"></div>
-      <div class="field"><label>Rate / lead ($)</label><input type="number" id="log-rate" step="0.0001" min="0.0001" oninput="calcAmt()"></div>
-    </div>
-    <div class="amount-lbl">Amount</div>
-    <div class="amount-big" id="log-amt">$0.00</div>
-    <button class="btn btn-primary" style="width:100%" onclick="submitLog()">Log entry</button>
-    <div id="log-msg"></div>
+      <div class="field" id="email-wrap" style="display:none">
+        <label>Email <span style="font-weight:400;text-transform:none;font-size:11px">(new client)</span></label>
+        <input type="email" id="log-email" placeholder="client@example.com">
+      </div>
+      <div class="row2">
+        <div class="field"><label>Leads sent</label><input type="number" id="log-leads" placeholder="50000" min="1" step="1000" oninput="calcAmt()"></div>
+        <div class="field"><label>Rate / lead ($)</label><input type="number" id="log-rate" step="0.0001" min="0.0001" oninput="calcAmt()"></div>
+      </div>
+      <div class="amount-lbl">Amount</div>
+      <div class="amount-big" id="log-amt">$0.00</div>
+      <button class="btn btn-primary" style="width:100%" onclick="submitLog()">Log entry</button>
+      <div id="log-msg"></div>
+    </section>
   </div>
 
   <!-- DAILY -->
   <div class="pane" id="pane-daily">
+    <div class="pane-title"><div><div class="sec-lbl">Daily view</div><h1>Daily totals</h1></div></div>
     <div class="date-nav">
       <button class="btn" onclick="changeDay(-1)">Previous day</button>
       <div class="field" style="margin:0"><label>Date</label><input type="date" id="daily-date" onchange="loadDaily()"></div>
@@ -182,6 +189,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <!-- SUMMARY -->
   <div class="pane" id="pane-weekly">
+    <div class="pane-title"><div><div class="sec-lbl">Summary</div><h1>Weekly billing</h1></div></div>
     <input type="hidden" id="weekly-date">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px">
       <button class="btn" onclick="changeWeek(-1)">Previous week</button>
@@ -196,6 +204,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <!-- INVOICE HISTORY -->
   <div class="pane" id="pane-history">
+    <div class="pane-title"><div><div class="sec-lbl">Invoices</div><h1>Invoice history</h1></div></div>
     <div class="history-toolbar">
       <div class="field" style="margin:0">
         <label>Client</label>
@@ -227,6 +236,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <!-- P&L -->
   <div class="pane" id="pane-pl">
+    <div class="pane-title"><div><div class="sec-lbl">Finance</div><h1>P&amp;L</h1></div></div>
     <div class="history-toolbar pl-toolbar">
       <div class="field" style="margin:0">
         <label>Year</label>
@@ -289,15 +299,19 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <!-- CUSTOMER REQUESTS -->
   <div class="pane" id="pane-requests">
+    <div class="pane-title"><div><div class="sec-lbl">Customers</div><h1>Requests</h1></div></div>
     <div class="settings-box">
-      <div class="sec-lbl">Invite customer</div>
+      <div class="sec-lbl">Create customer</div>
       <div class="row2">
         <div class="field"><label>Email</label><input type="email" id="invite-email" placeholder="customer@example.com"></div>
         <div class="field"><label>First name</label><input type="text" id="invite-first-name" placeholder="First name"></div>
       </div>
-      <div class="row2" style="max-width:480px">
+      <div class="row2">
         <div class="field"><label>Last name</label><input type="text" id="invite-last-name" placeholder="Last name"></div>
-        <div style="display:flex;align-items:flex-end"><button class="btn btn-primary" style="width:100%" onclick="inviteCustomer()">Send invite</button></div>
+        <div class="field"><label>Password</label><input type="password" id="invite-password" autocomplete="new-password" minlength="8" placeholder="Set customer password"></div>
+      </div>
+      <div style="display:flex;align-items:flex-end;max-width:220px">
+        <button class="btn btn-primary" style="width:100%" onclick="createCustomer()">Create customer</button>
       </div>
       <div id="invite-msg"></div>
     </div>
@@ -311,6 +325,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <!-- SETTINGS -->
   <div class="pane" id="pane-settings">
+    <div class="pane-title"><div><div class="sec-lbl">Workspace</div><h1>Settings</h1></div></div>
 
     <div class="settings-box">
       <div class="sec-lbl">Default rate per lead</div>
@@ -1328,10 +1343,11 @@ function renderRequests(){
   const lifetime=new Map(); _requests.filter(request=>request.status==='fulfilled').forEach(request=>lifetime.set(request.user_id,(lifetime.get(request.user_id)||0)+Number(request.lead_count||0)));
   out.innerHTML=shown.map(request=>{const profile=requestProfile(request.user_id),drift=JSON.stringify((request.states_snapshot||[]).slice().sort())!==JSON.stringify((profile.licensed_states||[]).slice().sort());return `<div class="settings-box"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><strong>${esc(customerName(profile))}</strong><div style="font-size:12px;color:var(--muted);margin-top:3px">${esc(profile.email||'')} ${profile.phone?' | '+esc(profile.phone):''}</div></div><span class="badge ${request.status==='fulfilled'?'badge-ok':''}">${esc(request.status)}</span></div><div style="margin-top:12px"><strong>${Number(request.lead_count).toLocaleString()} leads</strong> <span style="color:var(--muted);font-size:12px">requested ${fmtD(String(request.created_at).slice(0,10))}</span></div><div style="margin-top:9px">${requestStateChips(request.states_snapshot)} ${drift?'<span class="badge" style="background:#fef3c7;color:#92400e">Profile changed</span>':''}</div><div style="margin-top:12px;font-size:12px;color:var(--muted)">Fulfilled lifetime: ${(lifetime.get(request.user_id)||0).toLocaleString()} leads</div>${request.status==='pending'?`<button class="btn btn-primary" style="margin-top:12px" onclick="fulfillRequest(${request.id})">Mark fulfilled</button>`:''}</div>`;}).join('');
 }
-async function inviteCustomer(){
-  const email=document.getElementById('invite-email').value.trim(),firstName=document.getElementById('invite-first-name').value.trim(),lastName=document.getElementById('invite-last-name').value.trim(),msg=document.getElementById('invite-msg');
+async function createCustomer(){
+  const email=document.getElementById('invite-email').value.trim(),firstName=document.getElementById('invite-first-name').value.trim(),lastName=document.getElementById('invite-last-name').value.trim(),password=document.getElementById('invite-password').value,msg=document.getElementById('invite-msg');
   if(!email){msg.innerHTML='<div class="msg-err">Enter an email address.</div>';return;}
-  try{const response=await fetch('/api/admin/invite-customer',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({email,firstName,lastName})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Invite failed.');msg.innerHTML=`<div class="msg-ok">Invite sent to ${esc(data.email)}.</div>`;document.getElementById('invite-email').value='';document.getElementById('invite-first-name').value='';document.getElementById('invite-last-name').value='';await loadRequests();}catch(error){msg.innerHTML=`<div class="msg-err">${esc(error.message)}</div>`;}
+  if(password.length<8){msg.innerHTML='<div class="msg-err">Enter a password with at least 8 characters.</div>';return;}
+  try{const response=await fetch('/api/admin/create-customer',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({email,firstName,lastName,password})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Customer creation failed.');msg.innerHTML=`<div class="msg-ok">Customer account created for ${esc(data.email)}.</div>`;document.getElementById('invite-email').value='';document.getElementById('invite-first-name').value='';document.getElementById('invite-last-name').value='';document.getElementById('invite-password').value='';await loadRequests();}catch(error){msg.innerHTML=`<div class="msg-err">${esc(error.message)}</div>`;}
 }
 async function fulfillRequest(id){
   const request=_requests.find(item=>Number(item.id)===Number(id)); if(!request||request.status!=='pending')return;

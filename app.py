@@ -882,8 +882,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/void-invoice":
             self.handle_void_invoice()
             return
-        if path == "/api/admin/invite-customer":
-            self.handle_invite_customer()
+        if path in ("/api/admin/create-customer", "/api/admin/invite-customer"):
+            self.handle_create_customer()
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -957,7 +957,7 @@ class Handler(BaseHTTPRequestHandler):
             {"Set-Cookie": make_auth_cookie(token)},
         )
 
-    def handle_invite_customer(self):
+    def handle_create_customer(self):
         if not self.has_valid_session():
             self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "Admin login required."})
             return
@@ -971,19 +971,24 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Enter a valid customer email address.")
             first_name = str(payload.get("firstName", "")).strip()
             last_name = str(payload.get("lastName", "")).strip()
-            redirect_to = f"{public_base_url()}/portal-accept.html"
-            _, invited = supabase_request(
-                f"/auth/v1/invite?redirect_to={urllib.parse.quote(redirect_to, safe='')}",
+            password = str(payload.get("password", ""))
+            if len(password) < 8:
+                raise ValueError("Enter a password with at least 8 characters.")
+            _, created = supabase_request(
+                "/auth/v1/admin/users",
                 method="POST",
                 payload={
                     "email": email,
-                    "data": {"first_name": first_name, "last_name": last_name},
+                    "password": password,
+                    "email_confirm": True,
+                    "user_metadata": {"first_name": first_name, "last_name": last_name},
+                    "app_metadata": {"jawnix_role": "customer"},
                 },
                 service_role=True,
             )
-            user_id = str((invited or {}).get("id") or "").strip()
+            user_id = str((created or {}).get("id") or "").strip()
             if not user_id:
-                raise RuntimeError("Supabase did not return the invited user.")
+                raise RuntimeError("Supabase did not return the created user.")
             supabase_request(
                 "/rest/v1/jawnix_profiles?on_conflict=user_id",
                 method="POST",
