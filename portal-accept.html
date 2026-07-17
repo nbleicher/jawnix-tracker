@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set Your Jawnix Password</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/config.js"></script>
+<link rel="stylesheet" href="/theme.css">
+</head>
+<body class="auth-page">
+<main class="auth-shell">
+  <div class="auth-brand"><div class="logo">JAWN<span>IX</span></div><p>Customer portal</p></div>
+  <section class="auth-card">
+    <h1>Set your password</h1>
+    <div class="error" id="error" style="display:none"></div>
+    <form id="password-form">
+      <div class="field"><label for="password">New password</label><input id="password" type="password" minlength="8" autocomplete="new-password" required></div>
+      <div class="field"><label for="confirm-password">Confirm password</label><input id="confirm-password" type="password" minlength="8" autocomplete="new-password" required></div>
+      <button class="btn btn-primary" type="submit">Save password</button>
+    </form>
+  </section>
+</main>
+<script>
+const cfg=window.JAWNIX_CONFIG||{};
+const client=window.supabase?.createClient?.(cfg.supabaseUrl,cfg.supabaseAnonKey);
+const form=document.getElementById('password-form'), box=document.getElementById('error');
+function fail(message){box.textContent=message;box.style.display='block';}
+async function ensureSession(){
+  if(!client){fail('Portal configuration is unavailable.');return false;}
+  const {data:{session}}=await client.auth.getSession();
+  if(!session){fail('This link is invalid or has expired. Request a new invite or password reset email.');return false;}
+  return true;
+}
+form.addEventListener('submit',async event=>{event.preventDefault();if(!(await ensureSession()))return;const password=form.password.value;if(password!==form['confirm-password'].value){fail('Passwords do not match.');return;}const {error}=await client.auth.updateUser({password});if(error){fail(error.message);return;}window.location.assign('/portal.html');});
+ensureSession();
+</script>
+</body>
+</html>

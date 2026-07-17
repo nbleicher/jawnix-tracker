@@ -38,6 +38,9 @@ MAX_BODY_BYTES = int(os.environ.get("JAWNIX_MAX_INVOICE_JSON_BYTES", "1048576"))
 AUTH_COOKIE_NAME = os.environ.get("JAWNIX_AUTH_COOKIE_NAME", "jawnix_session")
 SESSION_TTL_SECONDS = int(os.environ.get("JAWNIX_SESSION_TTL_SECONDS", "86400"))
 STRIPE_API_URL = "https://api.stripe.com/v1/checkout/sessions"
+SUPABASE_URL = os.environ.get("JAWNIX_SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_ANON_KEY = os.environ.get("JAWNIX_SUPABASE_ANON_KEY", "").strip()
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 XML_NS = "http://www.w3.org/XML/1998/namespace"
@@ -235,6 +238,42 @@ def normalize_invoice(payload):
 def public_base_url():
     configured = os.environ.get("JAWNIX_PUBLIC_BASE_URL", "").strip().rstrip("/")
     return configured or "https://example.com"
+
+
+def supabase_request(path, method="GET", payload=None, access_token="", service_role=False, headers=None):
+    """Call Supabase Auth or PostgREST without adding an HTTP dependency."""
+    if not SUPABASE_URL:
+        raise RuntimeError("Supabase is not configured on the server.")
+    key = SUPABASE_SERVICE_ROLE_KEY if service_role else SUPABASE_ANON_KEY
+    if not key:
+        raise RuntimeError("The required Supabase API key is not configured.")
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    request_headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {access_token or key}",
+        "Accept": "application/json",
+    }
+    if body is not None:
+        request_headers["Content-Type"] = "application/json"
+    request_headers.update(headers or {})
+    request = urllib.request.Request(
+        f"{SUPABASE_URL}{path}", data=body, headers=request_headers, method=method
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            raw = response.read().decode("utf-8")
+            return response.status, json.loads(raw) if raw else None
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", "replace")
+        try:
+            details = json.loads(raw)
+        except json.JSONDecodeError:
+            details = {"message": raw}
+        error = RuntimeError(
+            str(details.get("msg") or details.get("message") or details.get("error") or raw or exc.reason)
+        )
+        error.status = exc.code
+        raise error from exc
 
 
 def create_stripe_checkout_session(invoice):
@@ -843,6 +882,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/void-invoice":
             self.handle_void_invoice()
             return
+        if path == "/api/admin/invite-customer":
+            self.handle_invite_customer()
+            return
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def read_json_body(self):
@@ -861,15 +903,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.OK, {"ok": True})
             return
 
-        configured_user = auth_user()
-        configured_password = auth_password()
-        if not configured_user or not configured_password:
-            self.send_json(
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                {"error": "Login is not configured on the server."},
-            )
-            return
-
         try:
             payload = self.read_json_body()
         except json.JSONDecodeError:
@@ -877,6 +910,36 @@ class Handler(BaseHTTPRequestHandler):
             return
         except ValueError:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid request size."})
+            return
+
+        access_token = str(payload.get("supabaseAccessToken", "")).strip()
+        if access_token:
+            try:
+                _, user = supabase_request("/auth/v1/user", access_token=access_token)
+            except Exception:
+                self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "Your Supabase session is invalid or expired."})
+                return
+            role = ((user or {}).get("app_metadata") or {}).get("jawnix_role")
+            if role != "admin":
+                self.send_json(
+                    HTTPStatus.FORBIDDEN,
+                    {"error": "This account is a customer account. Use the customer portal instead."},
+                )
+                return
+            token = make_session_token()
+            if not token:
+                self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Server session signing is not configured."})
+                return
+            self.send_json(HTTPStatus.OK, {"ok": True}, {"Set-Cookie": make_auth_cookie(token)})
+            return
+
+        configured_user = auth_user()
+        configured_password = auth_password()
+        if not configured_user or not configured_password:
+            self.send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": "Login is not configured on the server."},
+            )
             return
 
         submitted_user = str(payload.get("username", "")).strip()
@@ -893,6 +956,57 @@ class Handler(BaseHTTPRequestHandler):
             {"ok": True},
             {"Set-Cookie": make_auth_cookie(token)},
         )
+
+    def handle_invite_customer(self):
+        if not self.has_valid_session():
+            self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "Admin login required."})
+            return
+        if not SUPABASE_SERVICE_ROLE_KEY:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "SUPABASE_SERVICE_ROLE_KEY is not configured."})
+            return
+        try:
+            payload = self.read_json_body()
+            email = str(payload.get("email", "")).strip().lower()
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+                raise ValueError("Enter a valid customer email address.")
+            first_name = str(payload.get("firstName", "")).strip()
+            last_name = str(payload.get("lastName", "")).strip()
+            redirect_to = f"{public_base_url()}/portal-accept.html"
+            _, invited = supabase_request(
+                f"/auth/v1/invite?redirect_to={urllib.parse.quote(redirect_to, safe='')}",
+                method="POST",
+                payload={
+                    "email": email,
+                    "data": {"first_name": first_name, "last_name": last_name},
+                },
+                service_role=True,
+            )
+            user_id = str((invited or {}).get("id") or "").strip()
+            if not user_id:
+                raise RuntimeError("Supabase did not return the invited user.")
+            supabase_request(
+                "/rest/v1/jawnix_profiles?on_conflict=user_id",
+                method="POST",
+                payload={
+                    "user_id": user_id,
+                    "email": email,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                },
+                service_role=True,
+                headers={"Prefer": "resolution=merge-duplicates,return=representation"},
+            )
+            self.send_json(HTTPStatus.OK, {"ok": True, "email": email})
+        except json.JSONDecodeError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Request body must be valid JSON."})
+        except ValueError as exc:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception as exc:
+            message = str(exc)
+            if "already" in message.lower() or "registered" in message.lower() or "exists" in message.lower():
+                self.send_json(HTTPStatus.CONFLICT, {"error": "That email already has an account."})
+            else:
+                self.send_json(HTTPStatus.BAD_GATEWAY, {"error": message})
 
     def handle_void_invoice(self):
         try:

@@ -10,6 +10,9 @@ set -eu
 : "${JAWNIX_INVOICE_RECORDS_TABLE:=jawnix_invoice_records}"
 : "${JAWNIX_EXPENSES_TABLE:=jawnix_expenses}"
 : "${JAWNIX_MISC_INCOME_TABLE:=jawnix_misc_income}"
+: "${JAWNIX_PROFILES_TABLE:=jawnix_profiles}"
+: "${JAWNIX_LEAD_REQUESTS_TABLE:=jawnix_lead_requests}"
+: "${JAWNIX_INVOICES_BUCKET:=jawnix-invoices}"
 : "${CADDY_BIN:=caddy}"
 : "${APP_DIR:=/app}"
 : "${JAWNIX_INVOICE_DIR:=$APP_DIR/invoices}"
@@ -46,6 +49,9 @@ window.JAWNIX_CONFIG = {
   invoiceRecordsTable: '$(js_escape "$JAWNIX_INVOICE_RECORDS_TABLE")',
   expensesTable: '$(js_escape "$JAWNIX_EXPENSES_TABLE")',
   miscIncomeTable: '$(js_escape "$JAWNIX_MISC_INCOME_TABLE")',
+  profilesTable: '$(js_escape "$JAWNIX_PROFILES_TABLE")',
+  leadRequestsTable: '$(js_escape "$JAWNIX_LEAD_REQUESTS_TABLE")',
+  invoicesBucket: '$(js_escape "$JAWNIX_INVOICES_BUCKET")',
 };
 EOF
 
@@ -106,6 +112,15 @@ if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
 
 	handle /login {
 		redir * /login.html 308
+	}
+
+	handle /portal {
+		redir * /portal.html 308
+	}
+
+	@public_portal path /portal.html /portal-accept.html /config.js /theme.css
+	handle @public_portal {
+		file_server
 	}
 
 	handle {
