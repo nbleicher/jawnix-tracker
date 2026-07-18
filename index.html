@@ -395,6 +395,13 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     </div>
 
     <div class="settings-box">
+      <div class="sec-lbl">Customer sync</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Link current clients to customer accounts with matching names or emails so issued invoices appear in the customer portal.</p>
+      <button class="btn btn-primary" onclick="syncCustomerUsers()">Sync customers to clients</button>
+      <div id="set-sync-msg"></div>
+    </div>
+
+    <div class="settings-box">
       <div class="sec-lbl">Apply rate to an entire week</div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Updates every entry for the selected week — useful when changing pricing after entries are already logged.</p>
       <div class="row2" style="max-width:400px">
@@ -484,6 +491,7 @@ const INVOICE_VOID_FIELDS = 'week_start,client,voided_at';
 const INVOICE_RECORD_FIELDS = 'week_start,client,invoice_num,checkout_session_id,checkout_url,pdf_filename,pdf_path,user_id,total_due,payment_status,paid_at,generated_at,voided_at';
 const EXPENSE_FIELDS = 'id,category,vendor,expense_date,billing_cycle,notes,amount,created_at,updated_at';
 const MISC_INCOME_FIELDS = 'id,income_date,notes,amount,created_at,updated_at';
+const PROFILE_FIELDS = 'user_id,email,first_name,last_name,phone,licensed_states,created_at,updated_at';
 const DB = {
   client:null,
   workspaceId:'default',
@@ -578,6 +586,15 @@ const DB = {
     amount:Number(income.amount || 0),
     created_at:income.created_at || '',
     updated_at:income.updated_at || '',
+  }),
+  normalizeProfile: (profile) => ({
+    ...profile,
+    user_id:profile.user_id || null,
+    email:String(profile.email || '').trim(),
+    first_name:String(profile.first_name || '').trim(),
+    last_name:String(profile.last_name || '').trim(),
+    phone:String(profile.phone || '').trim(),
+    licensed_states:Array.isArray(profile.licensed_states) ? profile.licensed_states : [],
   }),
   nextLeadId: () => {
     const used = new Set(_leads.map(x=>String(x.id)));
@@ -704,6 +721,14 @@ const DB = {
     DB.miscIncomeAvailable=true;
     _miscIncome=(data||[]).map(DB.normalizeMiscIncome);
   },
+  loadCustomerProfiles: async () => {
+    const {data,error}=await DB.client.from(DB.profilesTable)
+      .select(PROFILE_FIELDS)
+      .order('created_at',{ascending:false});
+    DB.fail(error);
+    _customerProfiles=(data||[]).map(DB.normalizeProfile);
+    return _customerProfiles.slice();
+  },
   createLead: async (payload) => {
     const {data,error}=await DB.client.from(DB.leadTable)
       .insert(DB.leadRecord({id:DB.nextLeadId(),...payload},true))
@@ -755,6 +780,70 @@ const DB = {
     const byId=new Map(updated.map(e=>[String(e.id),e]));
     _leads=_leads.map(e=>byId.get(String(e.id))||e);
     return {updated:updated.length,client,email};
+  },
+  syncClientsToCustomers: async () => {
+    await DB.loadCustomerProfiles();
+    if(!_customerProfiles.length) throw new Error('No customer profiles found. Create customer accounts first.');
+    const indexes=customerProfileIndexes(_customerProfiles);
+    const clients=getClientSummary();
+    const matched=[];
+    const skipped=[];
+    const conflicts=[];
+    let leadRows=0;
+    let invoiceRows=0;
+
+    for(const client of clients){
+      if(client.user_id_conflict){
+        conflicts.push(`${client.name}: existing lead rows are linked to multiple customer accounts`);
+        continue;
+      }
+      const match=findCustomerProfileForClient(client,indexes);
+      if(match.reason){
+        conflicts.push(`${client.name}: ${match.reason}`);
+        continue;
+      }
+      if(!match.profile?.user_id){
+        skipped.push(client.name);
+        continue;
+      }
+
+      const profile=match.profile;
+      const leadPatch={user_id:profile.user_id};
+      if(profile.email) leadPatch.email=profile.email;
+      const leadRes=await DB.client.from(DB.leadTable)
+        .update(leadPatch)
+        .eq('workspace_id',DB.workspaceId)
+        .eq('client',client.name)
+        .select(LEAD_FIELDS);
+      DB.fail(leadRes.error);
+      const updatedLeads=(leadRes.data||[]).map(DB.normalizeLead);
+      const byId=new Map(updatedLeads.map(entry=>[String(entry.id),entry]));
+      _leads=_leads.map(entry=>byId.get(String(entry.id))||entry);
+      leadRows+=updatedLeads.length;
+
+      let updatedInvoices=[];
+      if(DB.invoiceRecordsAvailable){
+        const invoiceRes=await DB.client.from(DB.invoiceRecordsTable)
+          .update({user_id:profile.user_id})
+          .eq('workspace_id',DB.workspaceId)
+          .eq('client',client.name)
+          .select(INVOICE_RECORD_FIELDS);
+        if(invoiceRes.error){
+          if(DB.missingOptionalTable(invoiceRes.error)) DB.invoiceRecordsAvailable=false;
+          else DB.fail(invoiceRes.error);
+        }else{
+          updatedInvoices=(invoiceRes.data||[]).map(DB.normalizeInvoiceRecord);
+          const key=record=>`${record.week_start}||${record.client}||${record.invoice_num}`;
+          const byKey=new Map(updatedInvoices.map(record=>[key(record),record]));
+          _invoiceRecords=_invoiceRecords.map(record=>byKey.get(key(record))||record);
+          invoiceRows+=updatedInvoices.length;
+        }
+      }
+
+      matched.push({client:client.name,email:profile.email,user_id:profile.user_id,leads:updatedLeads.length,invoices:updatedInvoices.length});
+    }
+
+    return {matched,skipped,conflicts,leadRows,invoiceRows,profiles:_customerProfiles.length,clients:clients.length};
   },
   ensureInvoiceRenameSafe: (oldName,client) => {
     const oldVoidWeeks=new Set(_invoiceVoids.filter(v=>v.client===oldName).map(v=>v.week_start));
@@ -1122,8 +1211,8 @@ const DB = {
 };
 
 // ── Data ops ──────────────────────────────────────────────────────────────────
-async function logEntry(date, client, email, leads, rate){
-  return DB.createLead({date,client,email,leads,rate});
+async function logEntry(date, client, email, leads, rate, user_id=null){
+  return DB.createLead({date,client,email,leads,rate,user_id});
 }
 
 function viewDaily(date){
@@ -1193,18 +1282,42 @@ function viewMonthly(dateValue){
 
 function getClients(){
   const seen={};
-  DB.leads().forEach(e=>{if(!seen[e.client])seen[e.client]=e.email||'';});
-  return Object.entries(seen).map(([name,email])=>({name,email}));
+  DB.leads().forEach(e=>{
+    if(!seen[e.client]) seen[e.client]={email:e.email||'',userIds:new Set(),linked_entries:0};
+    if(e.email) seen[e.client].email=e.email;
+    if(e.user_id){
+      seen[e.client].userIds.add(e.user_id);
+      seen[e.client].linked_entries++;
+    }
+  });
+  return Object.entries(seen).map(([name,client])=>({
+    name,
+    email:client.email,
+    user_id:client.userIds.size===1 ? [...client.userIds][0] : null,
+    user_id_conflict:client.userIds.size>1,
+    linked_entries:client.linked_entries,
+  }));
 }
 
 function getClientSummary(){
   const map={};
   DB.leads().forEach(e=>{
-    if(!map[e.client]) map[e.client]={name:e.client,email:e.email||'',entries:0};
+    if(!map[e.client]) map[e.client]={name:e.client,email:e.email||'',entries:0,linked_entries:0,userIds:new Set()};
     if(e.email) map[e.client].email=e.email;
+    if(e.user_id){
+      map[e.client].userIds.add(e.user_id);
+      map[e.client].linked_entries++;
+    }
     map[e.client].entries++;
   });
-  return Object.values(map).sort((a,b)=>a.name.localeCompare(b.name));
+  return Object.values(map).map(client=>({
+    name:client.name,
+    email:client.email,
+    entries:client.entries,
+    linked_entries:client.linked_entries,
+    user_id:client.userIds.size===1 ? [...client.userIds][0] : null,
+    user_id_conflict:client.userIds.size>1,
+  })).sort((a,b)=>a.name.localeCompare(b.name));
 }
 
 async function editEntry(id,leads,rate){
@@ -1257,6 +1370,38 @@ function fmtRate(r){ return parseFloat(r).toFixed(4); }
 function getSun(s){ const d=new Date(s+'T12:00:00'); d.setDate(d.getDate()-d.getDay()); return localDate(d); }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/'/g,'&#39;'); }
 function customerKey(row){ return row?.user_id ? `user:${row.user_id}` : `client:${row?.client || row?.name || ''}`; }
+function normalizeTextKey(value){ return String(value||'').trim().toLowerCase().replace(/\s+/g,' '); }
+function normalizeEmailKey(value){ return String(value||'').trim().toLowerCase(); }
+function profileFullName(profile){ return [profile.first_name,profile.last_name].filter(Boolean).join(' ').trim(); }
+function addIndexEntry(map,key,profile){
+  if(!key) return;
+  if(!map.has(key)) map.set(key,[]);
+  map.get(key).push(profile);
+}
+function customerProfileIndexes(profiles){
+  const byEmail=new Map();
+  const byName=new Map();
+  profiles.forEach(profile=>{
+    addIndexEntry(byEmail,normalizeEmailKey(profile.email),profile);
+    addIndexEntry(byName,normalizeTextKey(profileFullName(profile)),profile);
+  });
+  return {byEmail,byName};
+}
+function uniqueProfile(matches){ return matches.length===1 ? matches[0] : null; }
+function findCustomerProfileForClient(client,indexes){
+  const emailKey=normalizeEmailKey(client.email);
+  const nameKey=normalizeTextKey(client.name);
+  const emailMatches=emailKey ? (indexes.byEmail.get(emailKey)||[]) : [];
+  const nameMatches=nameKey ? (indexes.byName.get(nameKey)||[]) : [];
+  if(emailMatches.length>1) return {reason:'multiple customer profiles have this email'};
+  if(!emailMatches.length && nameMatches.length>1) return {reason:'multiple customer profiles have this name'};
+  const emailProfile=uniqueProfile(emailMatches);
+  const nameProfile=uniqueProfile(nameMatches);
+  if(emailProfile && nameProfile && emailProfile.user_id!==nameProfile.user_id){
+    return {reason:'email and name match different customer profiles'};
+  }
+  return {profile:emailProfile || nameProfile || null};
+}
 function reloadActive(){ if(activeTab==='daily')loadDaily(); if(activeTab==='weekly')loadWeekly(); if(activeTab==='history')loadInvoiceHistory(); if(activeTab==='pl')loadPLPage(); }
 function refreshViews(){
   refreshToday(document.getElementById('log-date').value || today());
@@ -1302,7 +1447,7 @@ async function init(){
 function refreshClients(){
   clientMap={};
   const list=getClients();
-  list.forEach(c=>{clientMap[c.name]=c.email;});
+  list.forEach(c=>{clientMap[c.name]={email:c.email,user_id:c.user_id||null};});
   const opts=list.map(c=>`<option value="${esc(c.name)}">`).join('');
   document.getElementById('cl-list').innerHTML=opts;
 }
@@ -1331,9 +1476,12 @@ function requestStateChips(states){ return (states||[]).map(state=>`<span class=
 async function loadRequests(){
   const out=document.getElementById('requests-out'); if(!out) return;
   out.innerHTML='<div class="msg-info">Loading customer requests...</div>';
-  const [requestsRes,profilesRes]=await Promise.all([DB.client.from(DB.leadRequestsTable).select('*').order('created_at',{ascending:false}),DB.client.from(DB.profilesTable).select('*').order('created_at',{ascending:false})]);
+  const [requestsRes,profilesRes]=await Promise.all([
+    DB.client.from(DB.leadRequestsTable).select('*').order('created_at',{ascending:false}),
+    DB.loadCustomerProfiles().then(data=>({data})).catch(error=>({error})),
+  ]);
   if(requestsRes.error||profilesRes.error){out.innerHTML=`<div class="msg-err">Could not load requests: ${esc((requestsRes.error||profilesRes.error).message)}</div>`;return;}
-  _requests=requestsRes.data||[]; _customerProfiles=profilesRes.data||[]; renderRequests();
+  _requests=requestsRes.data||[]; renderRequests();
 }
 function renderRequests(){
   const out=document.getElementById('requests-out'); if(!out) return;
@@ -1367,19 +1515,21 @@ function onClient(){
   const v=document.getElementById('log-client').value.trim();
   const known=clientMap.hasOwnProperty(v);
   document.getElementById('email-wrap').style.display=(v&&!known)?'block':'none';
-  if(known&&clientMap[v]) document.getElementById('log-email').value=clientMap[v];
+  if(known&&clientMap[v]?.email) document.getElementById('log-email').value=clientMap[v].email;
 }
 
 async function submitLog(){
   const date=document.getElementById('log-date').value;
   const client=document.getElementById('log-client').value.trim();
-  const email=document.getElementById('log-email').value.trim()||clientMap[client]||'';
+  const knownClient=clientMap[client] || {};
+  const email=document.getElementById('log-email').value.trim()||knownClient.email||'';
+  const userId=knownClient.user_id||null;
   const leads=parseInt(document.getElementById('log-leads').value);
   const rate=parseFloat(document.getElementById('log-rate').value);
   const msg=document.getElementById('log-msg');
   if(!date||!client||!leads||!rate){msg.innerHTML='<div class="msg-err">Fill in all fields.</div>';return;}
   try{
-    const entry=await logEntry(date,client,email,leads,rate);
+    const entry=await logEntry(date,client,email,leads,rate,userId);
     refreshClients();
     document.getElementById('email-wrap').style.display='none';
     document.getElementById('log-leads').value=''; calcAmt();
@@ -2607,6 +2757,27 @@ async function saveClientDetails(){
     setTimeout(()=>msg.innerHTML='',3000);
   }catch(err){
     msg.innerHTML=`<div class="msg-err">Save failed: ${esc(err.message)}</div>`;
+  }
+}
+
+async function syncCustomerUsers(){
+  const msg=document.getElementById('set-sync-msg');
+  msg.innerHTML='<div class="msg-info">Syncing customers to clients...</div>';
+  try{
+    const result=await DB.syncClientsToCustomers();
+    refreshClients();
+    refreshClientEditor();
+    refreshInvoiceVoidEditor();
+    refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value || 'all');
+    refreshViews();
+    const details=[];
+    if(result.skipped.length) details.push(`${result.skipped.length} unmatched`);
+    if(result.conflicts.length) details.push(`${result.conflicts.length} skipped for conflicts`);
+    const matchedNames=result.matched.slice(0,8).map(item=>item.client).join(', ');
+    const conflictText=result.conflicts.length ? `<div style="margin-top:8px;color:#92400e">${esc(result.conflicts.slice(0,5).join('; '))}${result.conflicts.length>5?' ...':''}</div>` : '';
+    msg.innerHTML=`<div class="msg-ok">Linked ${result.matched.length} client${result.matched.length===1?'':'s'} to customer accounts, updated ${result.leadRows} lead row${result.leadRows===1?'':'s'} and ${result.invoiceRows} invoice record${result.invoiceRows===1?'':'s'}${details.length?` (${details.join(', ')})`:''}.${matchedNames?`<div style="margin-top:8px;color:var(--muted)">Matched: ${esc(matchedNames)}${result.matched.length>8?' ...':''}</div>`:''}${conflictText}</div>`;
+  }catch(err){
+    msg.innerHTML=`<div class="msg-err">Sync failed: ${esc(err.message)}</div>`;
   }
 }
 
