@@ -10,7 +10,7 @@
 </head>
 <body class="auth-page">
 <main class="auth-shell">
-  <div class="auth-brand"><div class="logo">JAWN<span>IX</span></div><p>Customer portal</p></div>
+  <div class="auth-brand"><div class="logo">JAWN<span>IX</span></div><p>Account access</p></div>
   <section class="auth-card">
     <h1>Set your password</h1>
     <div class="error" id="error" style="display:none"></div>
@@ -32,7 +32,7 @@ async function ensureSession(){
   if(!session){fail('This link is invalid or has expired. Request a new invite or password reset email.');return false;}
   return true;
 }
-form.addEventListener('submit',async event=>{event.preventDefault();if(!(await ensureSession()))return;const password=form.password.value;if(password!==form['confirm-password'].value){fail('Passwords do not match.');return;}const {error}=await client.auth.updateUser({password});if(error){fail(error.message);return;}window.location.assign('/portal.html');});
+form.addEventListener('submit',async event=>{event.preventDefault();if(!(await ensureSession()))return;const password=form.password.value;if(password!==form['confirm-password'].value){fail('Passwords do not match.');return;}const {error}=await client.auth.updateUser({password});if(error){fail(error.message);return;}window.location.assign('/login.html');});
 ensureSession();
 </script>
 </body>

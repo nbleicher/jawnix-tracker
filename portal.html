@@ -11,16 +11,10 @@
 <body>
 <main id="auth-view" class="auth-page">
   <section class="auth-shell">
-    <div class="auth-brand"><div class="logo">JAWN<span>IX</span></div><p>Customer portal</p></div>
+    <div class="auth-brand"><div class="logo">JAWN<span>IX</span></div><p>Account access</p></div>
     <div class="auth-card">
-      <h1>Sign in</h1>
+      <h1>Opening sign in...</h1>
       <div class="error" id="auth-error" style="display:none"></div>
-      <form id="auth-form">
-        <div class="field"><label for="auth-email">Email</label><input id="auth-email" type="email" autocomplete="email" required autofocus></div>
-        <div class="field"><label for="auth-password">Password</label><input id="auth-password" type="password" autocomplete="current-password" required></div>
-        <button class="btn btn-primary" type="submit">Sign in</button>
-      </form>
-      <a class="auth-link" href="#" id="forgot-password">Forgot password?</a>
     </div>
   </section>
 </main>
@@ -184,8 +178,6 @@ async function downloadInvoice(invoice){
 function activatePane(name){document.querySelectorAll('.portal-pane').forEach(el=>el.classList.toggle('active',el.id==='portal-'+name));document.querySelectorAll('.portal-nav button').forEach(el=>el.classList.toggle('active',el.dataset.pane===name));}
 function showAuthError(message){const box=document.getElementById('auth-error');box.textContent=message;box.style.display='block';}
 
-document.getElementById('auth-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;const {error}=await client.auth.signInWithPassword({email:document.getElementById('auth-email').value.trim(),password:document.getElementById('auth-password').value});button.disabled=false;if(error){showAuthError(error.message);return;}await boot();});
-document.getElementById('forgot-password').addEventListener('click',async event=>{event.preventDefault();const email=document.getElementById('auth-email').value.trim();if(!email){showAuthError('Enter your email address first.');return;}const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin+'/portal-accept.html'});if(error)showAuthError(error.message);else showAuthError('Check your email for a password reset link.');});
 document.getElementById('request-form').addEventListener('submit',submitRequest);
 document.getElementById('profile-form').addEventListener('submit',saveProfile);
 document.getElementById('quick-picks').innerHTML=[25,50,100,250,500,1000].map(n=>'<button type="button" data-count="'+n+'">'+n.toLocaleString()+'</button>').join('');
@@ -194,8 +186,8 @@ document.getElementById('edit-states').addEventListener('click',event=>{event.pr
 document.getElementById('select-all-states').addEventListener('click',()=>{document.querySelectorAll('#states-grid input').forEach(input=>input.checked=true);updateStateCount();});
 document.getElementById('clear-states').addEventListener('click',()=>{document.querySelectorAll('#states-grid input').forEach(input=>input.checked=false);updateStateCount();});
 document.querySelectorAll('.portal-nav button').forEach(button=>button.addEventListener('click',()=>activatePane(button.dataset.pane)));
-document.getElementById('sign-out').addEventListener('click',async()=>{await client.auth.signOut();window.location.reload();});
-async function boot(){if(!client){showAuthError('Portal configuration is unavailable.');return;}const {data:{user}}=await client.auth.getUser();if(!user){return;}currentUser=user;document.getElementById('auth-view').hidden=true;document.getElementById('portal-view').hidden=false;document.getElementById('portal-user-email').textContent=user.email||'';try{await loadData();}catch(error){alert('Could not load your portal: '+error.message);}}
+document.getElementById('sign-out').addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST',credentials:'same-origin'}).catch(()=>{});await client.auth.signOut();window.location.assign('/login.html?next=/portal.html');});
+async function boot(){if(!client){showAuthError('Portal configuration is unavailable.');return;}const {data:{user}}=await client.auth.getUser();if(!user){window.location.replace('/login.html?next=/portal.html');return;}currentUser=user;document.getElementById('auth-view').hidden=true;document.getElementById('portal-view').hidden=false;document.getElementById('portal-user-email').textContent=user.email||'';try{await loadData();}catch(error){alert('Could not load your portal: '+error.message);}}
 boot();
 </script>
 </body>
