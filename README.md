@@ -50,7 +50,7 @@ PORT=8080
 
 The same variables are listed in `.env.example`.
 
-The login page posts to `/api/auth/login`, which sets an HttpOnly signed session cookie. Set `JAWNIX_SESSION_SECRET` to a long random value so sessions remain valid even if the password changes.
+The login page signs in both admins and customers. Admin accounts also post to `/api/auth/login`, which sets an HttpOnly signed session cookie for the tracker. Set `JAWNIX_SESSION_SECRET` to a long random value so admin sessions remain valid even if the password changes.
 
 ```sh
 openssl rand -base64 32

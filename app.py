@@ -923,7 +923,7 @@ class Handler(BaseHTTPRequestHandler):
             if role != "admin":
                 self.send_json(
                     HTTPStatus.FORBIDDEN,
-                    {"error": "This account is a customer account. Use the customer portal instead."},
+                    {"error": "This account is not an admin account."},
                 )
                 return
             token = make_session_token()
