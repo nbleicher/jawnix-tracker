@@ -423,7 +423,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 .weekly-detail-panel {
   overflow: auto;
 }
-.history-table-wrap table { min-width: 980px; }
+.history-table-wrap table { min-width: 1080px; }
 .weekly-table-wrap table { min-width: 800px; }
 .pl-table-wrap { margin-bottom: 20px; }
 .pl-table-wrap table { min-width: 1180px; }
