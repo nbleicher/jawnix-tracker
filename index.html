@@ -214,7 +214,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
         <label>Status</label>
         <select id="hist-status" onchange="loadInvoiceHistory()">
           <option value="all">All invoices</option>
-          <option value="active">Active</option>
+          <option value="active" selected>Active</option>
           <option value="void">Void</option>
         </select>
       </div>
@@ -223,7 +223,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
         <select id="hist-payment" onchange="loadInvoiceHistory()">
           <option value="all">All payments</option>
           <option value="paid">Paid</option>
-          <option value="unpaid">Unpaid</option>
+          <option value="unpaid" selected>Open / unpaid</option>
           <option value="no_payment_required">No payment required</option>
         </select>
       </div>
@@ -989,6 +989,26 @@ const DB = {
       .eq('week_start',record.week_start)
       .eq('client',record.client)
       .eq('invoice_num',record.invoice_num)
+      .select(INVOICE_RECORD_FIELDS)
+      .single();
+    if(error){
+      if(DB.missingOptionalTable(error)) DB.invoiceRecordsAvailable=false;
+      DB.fail(error);
+    }
+    const saved=DB.normalizeInvoiceRecord(data);
+    const key=r=>`${r.week_start}||${r.client}||${r.invoice_num}`;
+    _invoiceRecords=_invoiceRecords.map(r=>key(r)===key(saved)?saved:r);
+    return saved;
+  },
+  markInvoiceRecordVoided: async (record) => {
+    if(!DB.invoiceRecordsAvailable) throw new Error('Invoice records table is missing. Run the updated supabase-schema.sql in Supabase.');
+    const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
+      .update({voided_at:new Date().toISOString()})
+      .eq('workspace_id',DB.workspaceId)
+      .eq('week_start',record.week_start)
+      .eq('client',record.client)
+      .eq('invoice_num',record.invoice_num)
+      .is('voided_at',null)
       .select(INVOICE_RECORD_FIELDS)
       .single();
     if(error){
@@ -1773,6 +1793,10 @@ function invoicePaymentBadge(record){
   return '<span class="badge badge-void">Unpaid</span>';
 }
 
+function invoiceIsOpen(record){
+  return !record.voided_at && invoicePaymentStatus(record)==='unpaid';
+}
+
 function safeCheckoutUrl(value){
   try{
     const url=new URL(String(value || ''), window.location.href);
@@ -1806,7 +1830,8 @@ function loadInvoiceHistory(){
   let records=DB.invoiceRecords();
   if(client!=='all') records=records.filter(r=>r.client===client);
   if(status!=='all') records=records.filter(r=>invoiceRecordStatus(r)===status);
-  if(payment!=='all') records=records.filter(r=>invoicePaymentStatus(r)===payment);
+  if(payment==='unpaid') records=records.filter(invoiceIsOpen);
+  else if(payment!=='all') records=records.filter(r=>invoicePaymentStatus(r)===payment);
   records=records.slice().sort((a,b)=>String(b.generated_at).localeCompare(String(a.generated_at)) || String(b.week_start).localeCompare(String(a.week_start)));
 
   if(!records.length){
@@ -1815,21 +1840,21 @@ function loadInvoiceHistory(){
   }
 
   const paid=records.filter(r=>['paid','no_payment_required'].includes(invoicePaymentStatus(r)));
-  const unpaid=records.filter(r=>invoicePaymentStatus(r)==='unpaid' && !r.voided_at);
+  const unpaid=records.filter(invoiceIsOpen);
   const total=records.reduce((s,r)=>s+r.total_due,0);
   const unpaidTotal=unpaid.reduce((s,r)=>s+r.total_due,0);
   el.innerHTML=`<div class="stat-bar">
     <div class="stat"><div class="stat-lbl">Invoices</div><div class="stat-val">${records.length}</div></div>
     <div class="stat"><div class="stat-lbl">Paid</div><div class="stat-val">${paid.length}</div></div>
-    <div class="stat"><div class="stat-lbl">Unpaid</div><div class="stat-val">${unpaid.length}</div></div>
-    <div class="stat"><div class="stat-lbl">Unpaid total</div><div class="stat-val">$${unpaidTotal.toFixed(2)}</div></div>
+    <div class="stat"><div class="stat-lbl">Open</div><div class="stat-val">${unpaid.length}</div></div>
+    <div class="stat"><div class="stat-lbl">Open total</div><div class="stat-val">$${unpaidTotal.toFixed(2)}</div></div>
     <div class="stat"><div class="stat-lbl">Filtered total</div><div class="stat-val">$${total.toFixed(2)}</div></div>
   </div>
   <div class="history-table-wrap">
     <table>
       <thead><tr>
         <th>Invoice</th><th>Client</th><th>Week</th><th>Generated</th>
-        <th class="td-r">Total</th><th>Status</th><th>Payment</th><th>Paid</th><th>Stripe</th><th>Toggle</th><th>PDF</th>
+        <th class="td-r">Total</th><th>Status</th><th>Payment</th><th>Paid</th><th>Stripe</th><th>Payment</th><th>Void</th><th>PDF</th>
       </tr></thead>
       <tbody>${records.map((r,i)=>`<tr class="${r.voided_at?'muted-row':''}">
         <td>${esc(r.invoice_num)}</td>
@@ -1842,6 +1867,7 @@ function loadInvoiceHistory(){
         <td>${esc(fmtDT(r.paid_at) || '-')}</td>
         <td>${safeCheckoutUrl(r.checkout_url) && !r.voided_at && invoicePaymentStatus(r)==='unpaid' ? `<a class="btn btn-sm btn-pay btn-pay-clean" href="${esc(safeCheckoutUrl(r.checkout_url))}" target="_blank" rel="noopener">Pay</a>` : '<span style="color:var(--muted)">-</span>'}</td>
         <td>${r.voided_at ? '<span style="color:var(--muted)">-</span>' : `<button class="btn btn-sm ${invoicePaymentStatus(r)==='paid'?'':'btn-primary'}" onclick="toggleInvoicePaid(${i})">${invoicePaymentStatus(r)==='paid'?'Mark unpaid':'Mark paid'}</button>`}</td>
+        <td>${invoiceIsOpen(r) ? `<button class="btn btn-sm btn-danger" onclick="voidInvoiceFromHistory(${i})">Void</button>` : '<span style="color:var(--muted)">-</span>'}</td>
         <td class="history-file" title="${esc(r.pdf_filename)}">${esc(r.pdf_filename || '-')}</td>
       </tr>`).join('')}</tbody>
     </table>
@@ -1859,6 +1885,23 @@ async function toggleInvoicePaid(index){
     loadPLPage();
   }catch(err){
     alert('Payment status update failed: '+err.message);
+  }
+}
+
+async function voidInvoiceFromHistory(index){
+  const record=window._historyRecords?.[index];
+  if(!record || !invoiceIsOpen(record)) return;
+  const sessionIds=record.checkout_session_id ? [record.checkout_session_id] : [];
+  const label=`${record.invoice_num} for ${record.client}`;
+  if(!confirm(`Void ${label}? This will remove it from open invoices${sessionIds.length ? ' and expire its Stripe checkout session' : ''}.`)) return;
+  try{
+    if(sessionIds.length) await expireStripeSessions(sessionIds);
+    await DB.markInvoiceRecordVoided(record);
+    refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value || 'all');
+    loadWeekly();
+    loadPLPage();
+  }catch(err){
+    alert('Invoice void failed: '+err.message);
   }
 }
 
