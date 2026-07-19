@@ -78,7 +78,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 .history-toolbar{display:grid;grid-template-columns:1fr 150px 170px 150px 130px;gap:12px;align-items:end;margin-bottom:16px}
 .pl-toolbar{grid-template-columns:160px 1fr 130px}
 .history-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r)}
-.history-table-wrap table{min-width:900px}
+.history-table-wrap table{min-width:1080px}
 .history-table-wrap th,.history-table-wrap td{white-space:nowrap}
 .history-file{max-width:240px;white-space:nowrap}
 .history-file span{display:inline-block;max-width:135px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;margin-left:6px}
@@ -471,6 +471,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
     <div class="json-out" id="m-json"></div>
     <div class="copy-row">
       <button class="btn btn-primary" id="m-generate-btn" onclick="generateInvoicePDF()">Download PDF</button>
+      <button class="btn" id="m-email-btn" onclick="emailLastGeneratedInvoice()" style="display:none">Email client</button>
       <a class="btn btn-pay btn-pay-clean" id="m-pay-link" href="#" target="_blank" rel="noopener" style="display:none">Pay on Stripe</a>
       <span id="m-copy-badge" style="display:none" class="badge badge-ok">PDF downloaded</span>
     </div>
@@ -481,6 +482,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 let activeTab = 'log', defaultRate = 0.0015, clientMap = {};
 let _modalData = null;
+let _lastGeneratedInvoice = null;
 let _leads = [];
 let _settings = {default_rate:0.0015,invoice_counter:1};
 let _invoiceVoids = [];
@@ -1849,23 +1851,102 @@ function invoiceDownloadUrl(record){
   return '';
 }
 
+function invoiceEmailFor(record){
+  if(record?.clientEmail) return String(record.clientEmail || '').trim();
+  const client=getClients().find(item=>item.name===record?.client);
+  return String(client?.email || '').trim();
+}
+
+function invoiceEmailDraft(record){
+  const status=invoicePaymentStatus(record);
+  const payUrl=invoiceIsOpen(record) ? safeCheckoutUrl(record?.checkout_url) : '';
+  const week=invoiceWeekLabel(record?.week_start);
+  const total=moneyFmt(record?.total_due);
+  const subject=`Invoice ${record?.invoice_num || ''} from Jawnix`.trim();
+  const paymentLine=payUrl
+    ? `You can pay securely here: ${payUrl}`
+    : status==='paid'
+      ? 'This invoice is marked paid; the PDF is for your records.'
+      : status==='no_payment_required'
+        ? 'No payment is required for this invoice.'
+        : status==='expired'
+          ? 'The previous payment link has expired; please see the invoice PDF for details.'
+          : 'Please see the invoice PDF for payment details.';
+  const body=[
+    `Hi ${record?.client || ''},`,
+    '',
+    `Your invoice ${record?.invoice_num || ''}${week ? ` for ${week}` : ''} is ready.`,
+    `Total due: ${total}`,
+    '',
+    paymentLine,
+    '',
+    'Thank you,',
+    'Jawnix',
+  ].join('\n');
+  return {to:invoiceEmailFor(record),subject,body};
+}
+
+function triggerInvoicePdfDownload(url, filename){
+  const a=document.createElement('a');
+  a.href=url;
+  if(filename) a.download=filename;
+  a.target='_blank';
+  a.rel='noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function downloadInvoicePdf(record){
+  if(!record) return;
+  if(record.pdf_path){
+    const {data,error}=await DB.client.storage.from(DB.invoicesBucket).createSignedUrl(record.pdf_path,60);
+    if(!error){
+      triggerInvoicePdfDownload(data.signedUrl,record.pdf_filename || 'invoice.pdf');
+      return;
+    }
+    if(!record.pdf_filename) throw error;
+  }
+  const url=invoiceDownloadUrl(record);
+  if(!url) throw new Error('No invoice PDF is available for this record.');
+  triggerInvoicePdfDownload(url,record.pdf_filename || 'invoice.pdf');
+}
+
+function openInvoiceEmailDraft(record){
+  if(!record) return;
+  const draft=invoiceEmailDraft(record);
+  if(!draft.to && !confirm('No email is saved for this client. Open an email draft without a recipient?')) return;
+  window.location.href=`mailto:${encodeURIComponent(draft.to)}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
+}
+
+async function emailInvoice(record, button){
+  if(!record) return;
+  if(button){button.disabled=true;button.textContent='Preparing';}
+  try{
+    await downloadInvoicePdf(record);
+    openInvoiceEmailDraft(record);
+  }catch(err){
+    alert('Invoice email failed: '+err.message);
+  }finally{
+    if(button){button.disabled=false;button.textContent='Email';}
+  }
+}
+
+function emailInvoiceFromHistory(index){
+  emailInvoice(window._historyRecords?.[index],document.querySelector(`[data-history-email="${index}"]`));
+}
+
+function emailLastGeneratedInvoice(){
+  emailInvoice(_lastGeneratedInvoice,document.getElementById('m-email-btn'));
+}
+
 async function downloadInvoiceFromHistory(index){
   const record=window._historyRecords?.[index];
   if(!record) return;
   const button=document.querySelector(`[data-history-download="${index}"]`);
   if(button){button.disabled=true;button.textContent='Preparing';}
   try{
-    if(record.pdf_path){
-      const {data,error}=await DB.client.storage.from(DB.invoicesBucket).createSignedUrl(record.pdf_path,60);
-      if(!error){
-        window.open(data.signedUrl,'_blank','noopener');
-        return;
-      }
-      if(!record.pdf_filename) throw error;
-    }
-    const url=invoiceDownloadUrl(record);
-    if(!url) throw new Error('No invoice PDF is available for this record.');
-    window.open(url,'_blank','noopener');
+    await downloadInvoicePdf(record);
   }catch(err){
     alert('Invoice download failed: '+err.message);
   }finally{
@@ -1963,7 +2044,7 @@ function loadInvoiceHistory(){
     <table>
       <thead><tr>
         <th>Invoice</th><th>Client</th><th>Week</th><th>Generated</th>
-        <th class="td-r">Total</th><th>Status</th><th>Payment</th><th>Paid</th><th>Stripe</th><th>Payment</th><th>Void</th><th>PDF</th>
+        <th class="td-r">Total</th><th>Status</th><th>Payment</th><th>Paid</th><th>Stripe</th><th>Email</th><th>Payment</th><th>Void</th><th>PDF</th>
       </tr></thead>
       <tbody>${records.map((r,i)=>`<tr class="${r.voided_at?'muted-row':''}">
         <td>${esc(r.invoice_num)}</td>
@@ -1975,6 +2056,7 @@ function loadInvoiceHistory(){
         <td>${invoicePaymentBadge(r)}</td>
         <td>${esc(fmtDT(r.paid_at) || '-')}</td>
         <td>${safeCheckoutUrl(r.checkout_url) && !r.voided_at && invoicePaymentStatus(r)==='unpaid' ? `<a class="btn btn-sm btn-pay btn-pay-clean" href="${esc(safeCheckoutUrl(r.checkout_url))}" target="_blank" rel="noopener">Pay</a>` : '<span style="color:var(--muted)">-</span>'}</td>
+        <td>${r.voided_at ? '<span style="color:var(--muted)">-</span>' : `<button class="btn btn-sm" data-history-email="${i}" onclick="emailInvoiceFromHistory(${i})">Email</button>`}</td>
         <td>${r.voided_at ? '<span style="color:var(--muted)">-</span>' : `<button class="btn btn-sm ${invoicePaymentStatus(r)==='paid'?'':'btn-primary'}" onclick="toggleInvoicePaid(${i})">${invoicePaymentStatus(r)==='paid'?'Mark unpaid':'Mark paid'}</button>`}</td>
         <td>${invoiceIsOpen(r) ? `<button class="btn btn-sm btn-danger" onclick="voidInvoiceFromHistory(${i})">Void</button>` : '<span style="color:var(--muted)">-</span>'}</td>
         <td class="history-file" title="${esc(r.pdf_filename)}">${r.pdf_filename ? `<button class="btn btn-sm" data-history-download="${i}" onclick="downloadInvoiceFromHistory(${i})">Download</button><span>${esc(r.pdf_filename)}</span>` : '<span style="color:var(--muted)">-</span>'}</td>
@@ -2609,6 +2691,7 @@ function openInvModal(clientIdx){
   }
   const label= window._weeklyLabel;
   _modalData = {client:c.client, email:c.email, user_id:c.user_id||null, weekStart:c.week_start, weekLabel:label, days:c.days};
+  _lastGeneratedInvoice = null;
 
   document.getElementById('m-client').textContent = c.client;
   document.getElementById('m-week').textContent   = label;
@@ -2626,6 +2709,7 @@ function openInvModal(clientIdx){
 
   rebuildInvJSON();
   document.getElementById('m-copy-badge').style.display='none';
+  document.getElementById('m-email-btn').style.display='none';
   document.getElementById('m-pay-link').style.display='none';
   document.getElementById('inv-modal-bg').classList.add('open');
 }
@@ -2683,9 +2767,10 @@ async function generateInvoiceFromPayload(payload,clientData,options={}){
   if(options.download){
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=pdfFilename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
   }
-  await DB.saveInvoiceRecord({week_start:payload.weekStart,client:payload.clientName,invoice_num:payload.invoiceNum,checkout_session_id:checkoutSessionId,checkout_url:checkoutUrl||'',pdf_filename:pdfFilename,pdf_path:pdfPath,user_id:userId,total_due:payload.totalDue,payment_status:'unpaid'});
+  const invoiceRecord={week_start:payload.weekStart,client:payload.clientName,clientEmail:payload.clientEmail||clientData.email||'',invoice_num:payload.invoiceNum,checkout_session_id:checkoutSessionId,checkout_url:checkoutUrl||'',pdf_filename:pdfFilename,pdf_path:pdfPath,user_id:userId,total_due:payload.totalDue,payment_status:'unpaid',generated_at:new Date().toISOString()};
+  const savedRecord=await DB.saveInvoiceRecord(invoiceRecord);
   await bumpInvNum();
-  return {checkoutUrl,pdfFilename,pdfPath};
+  return {checkoutUrl,pdfFilename,pdfPath,record:{...invoiceRecord,...(savedRecord||{})}};
 }
 
 async function generateInvoicePDF(){
@@ -2695,8 +2780,11 @@ async function generateInvoicePDF(){
   btn.disabled=true;
   btn.textContent='Generating...';
   badge.style.display='none';
+  document.getElementById('m-pay-link').style.display='none';
+  document.getElementById('m-email-btn').style.display='none';
   try{
     const result=await generateInvoiceFromPayload(payload,_modalData,{download:true});
+    _lastGeneratedInvoice=result.record;
     refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value || 'all');
     document.getElementById('m-inv-num').value = nextInvNum();
     rebuildInvJSON();
@@ -2705,6 +2793,7 @@ async function generateInvoicePDF(){
       payLink.href=result.checkoutUrl;
       payLink.style.display='inline-flex';
     }
+    document.getElementById('m-email-btn').style.display='inline-flex';
     badge.textContent='PDF downloaded';
     badge.className='badge badge-ok';
     badge.style.background='';
