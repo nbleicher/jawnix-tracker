@@ -47,6 +47,24 @@ alter table public.jawnix_invoice_records
     check (payment_status in ('paid', 'unpaid', 'expired', 'no_payment_required')),
   add column if not exists paid_at timestamptz;
 
+do $$
+declare
+  constraint_name text;
+begin
+  for constraint_name in
+    select con.conname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    join pg_namespace nsp on nsp.oid = rel.relnamespace
+    where nsp.nspname = 'public'
+      and rel.relname = 'jawnix_invoice_records'
+      and con.contype = 'c'
+      and pg_get_constraintdef(con.oid) like '%payment_status%'
+  loop
+    execute format('alter table public.jawnix_invoice_records drop constraint if exists %I', constraint_name);
+  end loop;
+end $$;
+
 alter table public.jawnix_invoice_records
   drop constraint if exists jawnix_invoice_records_payment_status_check,
   add constraint jawnix_invoice_records_payment_status_check

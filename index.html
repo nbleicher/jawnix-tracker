@@ -541,6 +541,10 @@ const DB = {
     const text = `${error?.code || ''} ${error?.message || ''} ${error?.details || ''}`;
     return /42P01|PGRST205|PGRST106|relation .* does not exist|could not find .*table|schema cache/i.test(text);
   },
+  outdatedInvoicePaymentStatusConstraint: (error) => {
+    const text = `${error?.code || ''} ${error?.message || ''} ${error?.details || ''}`;
+    return /23514|jawnix_invoice_records_payment_status_check|payment_status_check/i.test(text);
+  },
   normalizeLead: (lead) => ({
     ...lead,
     id:Number(lead.id),
@@ -999,6 +1003,9 @@ const DB = {
       .single();
     if(error){
       if(DB.missingOptionalTable(error)) DB.invoiceRecordsAvailable=false;
+      if(status==='expired' && DB.outdatedInvoicePaymentStatusConstraint(error)){
+        throw new Error('Supabase invoice records schema is outdated. Run the updated supabase-schema.sql so payment_status accepts expired.');
+      }
       DB.fail(error);
     }
     const saved=DB.normalizeInvoiceRecord(data);
@@ -1904,7 +1911,7 @@ async function refreshInvoiceStatuses(){
     if(refreshed) refreshed.insertAdjacentHTML('afterbegin',`<div class="msg-ok">${esc(message)}</div>`);
   }catch(err){
     const refreshed=document.getElementById('history-out');
-    if(refreshed) refreshed.insertAdjacentHTML('afterbegin',`<div class="msg-err">Stripe refresh failed: ${esc(err.message)}</div>`);
+    if(refreshed) refreshed.insertAdjacentHTML('afterbegin',`<div class="msg-err">Invoice status refresh failed: ${esc(err.message)}</div>`);
   }
 }
 
