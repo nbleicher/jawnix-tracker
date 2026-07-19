@@ -1837,6 +1837,10 @@ function invoiceIsOpen(record){
   return !record.voided_at && invoicePaymentStatus(record)==='unpaid';
 }
 
+function invoiceBlocksRegeneration(record){
+  return !record.voided_at && invoicePaymentStatus(record)!=='expired';
+}
+
 function safeCheckoutUrl(value){
   try{
     const url=new URL(String(value || ''), window.location.href);
@@ -2815,11 +2819,11 @@ async function generateAllInvoices(){
   const clients=(window._weeklyClients||[]).filter(client=>!client.voided);
   const button=document.getElementById('batch-invoices-btn');
   if(!clients.length){alert('There are no active clients to invoice for this week.');return;}
-  if(!confirm(`Generate invoices for ${clients.length} client${clients.length===1?'':'s'}? Existing invoices for this week will be skipped.`))return;
+  if(!confirm(`Generate invoices for ${clients.length} client${clients.length===1?'':'s'}? Existing open or paid invoices for this week will be skipped; expired invoices can be regenerated.`))return;
   button.disabled=true; let success=0,skipped=0; const failures=[];
   for(let index=0;index<clients.length;index++){
     const clientData=clients[index];button.textContent=`Generating ${index+1} of ${clients.length}...`;
-    if(invoiceRecordsFor(clientData.client,clientData.week_start,clientData.user_id).some(record=>!record.voided_at)){skipped++;continue;}
+    if(invoiceRecordsFor(clientData.client,clientData.week_start,clientData.user_id).some(invoiceBlocksRegeneration)){skipped++;continue;}
     try{const payload=buildInvoicePayloadFor({...clientData,weekLabel:window._weeklyLabel,weekStart:clientData.week_start},nextInvNum(),today());await generateInvoiceFromPayload(payload,clientData,{download:false});success++;}catch(error){failures.push(`${clientData.client}: ${error.message}`);}
   }
   button.disabled=false;button.textContent='Generate all invoices';
