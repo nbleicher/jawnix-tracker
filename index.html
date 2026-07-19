@@ -1890,6 +1890,16 @@ function invoiceEmailDraft(record){
   return {to:invoiceEmailFor(record),subject,body};
 }
 
+function gmailComposeUrl(draft){
+  const url=new URL('https://mail.google.com/mail/');
+  url.searchParams.set('view','cm');
+  url.searchParams.set('fs','1');
+  if(draft.to) url.searchParams.set('to',draft.to);
+  url.searchParams.set('su',draft.subject);
+  url.searchParams.set('body',draft.body);
+  return url.href;
+}
+
 function triggerInvoicePdfDownload(url, filename){
   const a=document.createElement('a');
   a.href=url;
@@ -1916,20 +1926,32 @@ async function downloadInvoicePdf(record){
   triggerInvoicePdfDownload(url,record.pdf_filename || 'invoice.pdf');
 }
 
-function openInvoiceEmailDraft(record){
-  if(!record) return;
+function openInvoiceEmailDraft(record, draftWindow=null){
+  if(!record) return false;
   const draft=invoiceEmailDraft(record);
-  if(!draft.to && !confirm('No email is saved for this client. Open an email draft without a recipient?')) return;
-  window.location.href=`mailto:${encodeURIComponent(draft.to)}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
+  if(!draft.to && !confirm('No email is saved for this client. Open an email draft without a recipient?')){
+    if(draftWindow && !draftWindow.closed) draftWindow.close();
+    return false;
+  }
+  const url=gmailComposeUrl(draft);
+  if(draftWindow && !draftWindow.closed){
+    draftWindow.location.href=url;
+    return true;
+  }
+  window.open(url,'_blank','noopener');
+  return true;
 }
 
 async function emailInvoice(record, button){
   if(!record) return;
   if(button){button.disabled=true;button.textContent='Preparing';}
+  const draftWindow=window.open('about:blank','_blank');
+  if(draftWindow) draftWindow.opener=null;
   try{
     await downloadInvoicePdf(record);
-    openInvoiceEmailDraft(record);
+    openInvoiceEmailDraft(record,draftWindow);
   }catch(err){
+    if(draftWindow && !draftWindow.closed) draftWindow.close();
     alert('Invoice email failed: '+err.message);
   }finally{
     if(button){button.disabled=false;button.textContent='Email';}
