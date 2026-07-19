@@ -331,6 +331,25 @@ def create_stripe_checkout_session(invoice):
     return checkout_url, checkout_session_id
 
 
+def stripe_error_message(exc):
+    try:
+        payload = json.loads(exc.read().decode("utf-8"))
+        return str(payload.get("error", {}).get("message") or "")
+    except Exception:
+        return ""
+
+
+def is_already_expired_checkout_session_error(message):
+    normalized = str(message or "").lower()
+    return (
+        "checkout session" in normalized
+        and (
+            "already expired" in normalized
+            or re.search(r"status\s+of\s+[`'\"]?expired", normalized) is not None
+        )
+    )
+
+
 def expire_stripe_checkout_session(session_id):
     session_id = str(session_id or "").strip()
     if not session_id:
@@ -354,16 +373,74 @@ def expire_stripe_checkout_session(session_id):
         with urllib.request.urlopen(request, timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        try:
-            detail = json.loads(exc.read().decode("utf-8")).get("error", {}).get("message")
-        except Exception:
-            detail = None
+        detail = stripe_error_message(exc)
+        if is_already_expired_checkout_session_error(detail):
+            return {
+                "id": session_id,
+                "status": "expired",
+                "already_expired": True,
+            }
         raise RuntimeError(detail or f"Stripe Checkout Session {session_id} could not be expired.") from exc
 
     return {
         "id": str(data.get("id", session_id)),
         "status": str(data.get("status", "")),
     }
+
+
+def retrieve_stripe_checkout_session(session_id):
+    session_id = str(session_id or "").strip()
+    if not session_id:
+        raise ValueError("Missing Stripe Checkout Session ID.")
+
+    secret_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+    if not secret_key:
+        raise ValueError("STRIPE_SECRET_KEY is required to refresh Stripe checkout sessions.")
+
+    quoted_id = urllib.parse.quote(session_id, safe="")
+    request = urllib.request.Request(
+        f"{STRIPE_API_URL}/{quoted_id}",
+        headers={"Authorization": f"Bearer {secret_key}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = stripe_error_message(exc)
+        raise RuntimeError(detail or f"Stripe Checkout Session {session_id} could not be refreshed.") from exc
+
+    status = str(data.get("status", "")).strip().lower()
+    payment_status = str(data.get("payment_status", "")).strip().lower()
+    if status == "expired":
+        invoice_payment_status = "expired"
+    elif payment_status == "paid":
+        invoice_payment_status = "paid"
+    elif payment_status == "no_payment_required":
+        invoice_payment_status = "no_payment_required"
+    else:
+        invoice_payment_status = "unpaid"
+
+    return {
+        "id": str(data.get("id", session_id)),
+        "status": status,
+        "payment_status": payment_status,
+        "invoice_payment_status": invoice_payment_status,
+    }
+
+
+def invoice_pdf_path(filename):
+    filename = str(filename or "").strip()
+    if not filename or Path(filename).name != filename:
+        raise ValueError("Invalid invoice filename.")
+    if Path(filename).suffix.lower() != ".pdf":
+        raise ValueError("Invalid invoice file type.")
+
+    base_dir = INVOICE_DIR.resolve()
+    candidate = (INVOICE_DIR / filename).resolve()
+    if candidate.parent != base_dir:
+        raise ValueError("Invalid invoice filename.")
+    return candidate
 
 
 def table_cell(text, align="left", bold=False):
@@ -805,7 +882,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", os.environ.get("JAWNIX_CORS_ORIGIN", "*"))
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header(
             "Access-Control-Expose-Headers",
@@ -842,7 +919,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/api/healthz":
             self.send_json(HTTPStatus.OK, {"ok": True})
             return
@@ -861,6 +939,9 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     return
                 self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "Login required."})
+            return
+        if path == "/api/invoice-pdf":
+            self.handle_invoice_pdf_download(parsed)
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -881,6 +962,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/void-invoice":
             self.handle_void_invoice()
+            return
+        if path == "/api/refresh-invoice-statuses":
+            self.handle_refresh_invoice_statuses()
             return
         if path in ("/api/admin/create-customer", "/api/admin/invite-customer"):
             self.handle_create_customer()
@@ -1034,6 +1118,55 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         except Exception as exc:
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+    def handle_refresh_invoice_statuses(self):
+        if not self.has_valid_session():
+            self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "Login required."})
+            return
+
+        try:
+            payload = self.read_json_body()
+            session_ids = payload.get("checkoutSessionIds", [])
+            if not isinstance(session_ids, list):
+                raise ValueError("checkoutSessionIds must be an array.")
+            sessions = []
+            errors = []
+            for session_id in session_ids:
+                try:
+                    sessions.append(retrieve_stripe_checkout_session(session_id))
+                except Exception as exc:
+                    errors.append({"id": str(session_id), "error": str(exc)})
+            status = HTTPStatus.MULTI_STATUS if errors else HTTPStatus.OK
+            self.send_json(status, {"sessions": sessions, "errors": errors})
+        except json.JSONDecodeError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Request body must be valid JSON."})
+        except ValueError as exc:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception as exc:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+    def handle_invoice_pdf_download(self, parsed):
+        if not self.has_valid_session():
+            self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "Login required."})
+            return
+
+        try:
+            params = urllib.parse.parse_qs(parsed.query)
+            pdf_path = invoice_pdf_path(params.get("filename", [""])[0])
+            data = pdf_path.read_bytes()
+        except ValueError as exc:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+        except FileNotFoundError:
+            self.send_json(HTTPStatus.NOT_FOUND, {"error": "Invoice PDF was not found."})
+            return
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'attachment; filename="{pdf_path.name}"')
+        self.end_headers()
+        self.wfile.write(data)
 
     def handle_generate_invoice(self):
         if urlparse(self.path).path != "/api/generate-invoice":

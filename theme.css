@@ -414,7 +414,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 }
 .date-nav, .history-toolbar { padding: 15px; }
 .date-nav { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; gap: 12px; align-items: end; margin-bottom: 20px; }
-.history-toolbar { display: grid; grid-template-columns: 1fr 150px 180px 130px; gap: 12px; align-items: end; margin-bottom: 18px; }
+.history-toolbar { display: grid; grid-template-columns: 1fr 150px 180px 150px 130px; gap: 12px; align-items: end; margin-bottom: 18px; }
 .pl-toolbar { grid-template-columns: 160px 1fr 130px; }
 
 .history-table-wrap,
@@ -433,7 +433,8 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 .weekly-table-wrap td,
 .pl-table-wrap th,
 .pl-table-wrap td { white-space: nowrap; }
-.history-file { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.history-file { max-width: 240px; white-space: nowrap; }
+.history-file span { display: inline-block; max-width: 135px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; margin-left: 6px; }
 .weekly-detail-row { display: none; background: var(--recessed); }
 .weekly-detail-row.open { display: table-row; }
 .weekly-detail-cell { padding: 13px; }
@@ -611,6 +612,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
 .request-title, .invoice-title { color: var(--ink); font-weight: 700; }
 .request-date, .invoice-date { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .status.pending, .status.unpaid { background: var(--warning-soft); color: var(--warning); }
+.status.expired { background: var(--danger-soft); color: var(--danger); }
 .status.fulfilled, .status.paid { background: var(--success-soft); color: var(--success); }
 .invoice-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 .profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }

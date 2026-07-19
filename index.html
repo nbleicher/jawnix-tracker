@@ -75,12 +75,13 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 .badge-ok{background:#dcfce7;color:#15803d}
 .badge-void{background:#f1f5f9;color:#475569}
 .muted-row td{color:var(--muted)}
-.history-toolbar{display:grid;grid-template-columns:1fr 150px 170px 130px;gap:12px;align-items:end;margin-bottom:16px}
+.history-toolbar{display:grid;grid-template-columns:1fr 150px 170px 150px 130px;gap:12px;align-items:end;margin-bottom:16px}
 .pl-toolbar{grid-template-columns:160px 1fr 130px}
 .history-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r)}
 .history-table-wrap table{min-width:900px}
 .history-table-wrap th,.history-table-wrap td{white-space:nowrap}
-.history-file{max-width:210px;overflow:hidden;text-overflow:ellipsis}
+.history-file{max-width:240px;white-space:nowrap}
+.history-file span{display:inline-block;max-width:135px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;margin-left:6px}
 .date-nav{display:grid;grid-template-columns:auto minmax(190px,1fr) auto;gap:12px;align-items:end;margin-bottom:18px}
 .date-nav .field{margin:0}
 .weekly-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r)}
@@ -224,11 +225,15 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
           <option value="all">All payments</option>
           <option value="paid">Paid</option>
           <option value="unpaid" selected>Open / unpaid</option>
+          <option value="expired">Expired</option>
           <option value="no_payment_required">No payment required</option>
         </select>
       </div>
       <div style="display:flex;align-items:flex-end">
-        <button class="btn" style="width:100%" onclick="refreshInvoiceHistoryFilters()">Refresh</button>
+        <button class="btn" style="width:100%" onclick="refreshInvoiceStatuses()">Refresh Stripe</button>
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="btn" style="width:100%" onclick="refreshInvoiceHistoryFilters()">Reload</button>
       </div>
     </div>
     <div id="history-out"><div class="msg-info">Loading…</div></div>
@@ -489,6 +494,7 @@ let _customerProfiles = [];
 const LEAD_FIELDS = 'id,date,client,email,leads,rate,amount,user_id';
 const INVOICE_VOID_FIELDS = 'week_start,client,voided_at';
 const INVOICE_RECORD_FIELDS = 'week_start,client,invoice_num,checkout_session_id,checkout_url,pdf_filename,pdf_path,user_id,total_due,payment_status,paid_at,generated_at,voided_at';
+const INVOICE_PAYMENT_STATUSES = ['paid','unpaid','expired','no_payment_required'];
 const EXPENSE_FIELDS = 'id,category,vendor,expense_date,billing_cycle,notes,amount,created_at,updated_at';
 const MISC_INCOME_FIELDS = 'id,income_date,notes,amount,created_at,updated_at';
 const PROFILE_FIELDS = 'user_id,email,first_name,last_name,phone,licensed_states,created_at,updated_at';
@@ -959,7 +965,7 @@ const DB = {
       paid_at:payload.paid_at || null,
       voided_at:null,
     };
-    if(!['paid','unpaid','no_payment_required'].includes(record.payment_status)) record.payment_status='unpaid';
+    if(!INVOICE_PAYMENT_STATUSES.includes(record.payment_status)) record.payment_status='unpaid';
     if(!record.week_start || !record.client || !record.invoice_num) return null;
     const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
       .upsert(record,{onConflict:'workspace_id,week_start,client,invoice_num'})
@@ -982,6 +988,30 @@ const DB = {
     const update={
       payment_status:paid ? 'paid' : 'unpaid',
       paid_at:paid ? new Date().toISOString() : null,
+    };
+    const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
+      .update(update)
+      .eq('workspace_id',DB.workspaceId)
+      .eq('week_start',record.week_start)
+      .eq('client',record.client)
+      .eq('invoice_num',record.invoice_num)
+      .select(INVOICE_RECORD_FIELDS)
+      .single();
+    if(error){
+      if(DB.missingOptionalTable(error)) DB.invoiceRecordsAvailable=false;
+      DB.fail(error);
+    }
+    const saved=DB.normalizeInvoiceRecord(data);
+    const key=r=>`${r.week_start}||${r.client}||${r.invoice_num}`;
+    _invoiceRecords=_invoiceRecords.map(r=>key(r)===key(saved)?saved:r);
+    return saved;
+  },
+  setInvoicePaymentStatus: async (record, paymentStatus) => {
+    if(!DB.invoiceRecordsAvailable) throw new Error('Invoice records table is missing. Run the updated supabase-schema.sql in Supabase.');
+    const status=INVOICE_PAYMENT_STATUSES.includes(paymentStatus) ? paymentStatus : 'unpaid';
+    const update={
+      payment_status:status,
+      paid_at:status==='paid' ? (record.paid_at || new Date().toISOString()) : null,
     };
     const {data,error}=await DB.client.from(DB.invoiceRecordsTable)
       .update(update)
@@ -1783,12 +1813,13 @@ function invoiceStatusBadge(record){
 }
 
 function invoicePaymentStatus(record){
-  return ['paid','unpaid','no_payment_required'].includes(record.payment_status) ? record.payment_status : 'unpaid';
+  return INVOICE_PAYMENT_STATUSES.includes(record.payment_status) ? record.payment_status : 'unpaid';
 }
 
 function invoicePaymentBadge(record){
   const status=invoicePaymentStatus(record);
   if(status==='paid') return '<span class="badge badge-ok">Paid</span>';
+  if(status==='expired') return '<span class="badge badge-void">Expired</span>';
   if(status==='no_payment_required') return '<span class="badge badge-ok">No payment required</span>';
   return '<span class="badge badge-void">Unpaid</span>';
 }
@@ -1803,6 +1834,77 @@ function safeCheckoutUrl(value){
     return ['http:','https:'].includes(url.protocol) ? url.href : '';
   }catch(_err){
     return '';
+  }
+}
+
+function invoiceDownloadUrl(record){
+  if(record?.pdf_filename) return `/api/invoice-pdf?filename=${encodeURIComponent(record.pdf_filename)}`;
+  return '';
+}
+
+async function downloadInvoiceFromHistory(index){
+  const record=window._historyRecords?.[index];
+  if(!record) return;
+  const button=document.querySelector(`[data-history-download="${index}"]`);
+  if(button){button.disabled=true;button.textContent='Preparing';}
+  try{
+    if(record.pdf_path){
+      const {data,error}=await DB.client.storage.from(DB.invoicesBucket).createSignedUrl(record.pdf_path,60);
+      if(!error){
+        window.open(data.signedUrl,'_blank','noopener');
+        return;
+      }
+      if(!record.pdf_filename) throw error;
+    }
+    const url=invoiceDownloadUrl(record);
+    if(!url) throw new Error('No invoice PDF is available for this record.');
+    window.open(url,'_blank','noopener');
+  }catch(err){
+    alert('Invoice download failed: '+err.message);
+  }finally{
+    if(button){button.disabled=false;button.textContent='Download';}
+  }
+}
+
+async function fetchStripeSessionStatuses(sessionIds){
+  if(!sessionIds.length) return {sessions:[],errors:[]};
+  const res=await fetch('/api/refresh-invoice-statuses',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({checkoutSessionIds:sessionIds}),
+  });
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error || 'Stripe refresh failed.');
+  return data;
+}
+
+async function refreshInvoiceStatuses(){
+  const out=document.getElementById('history-out');
+  const records=DB.invoiceRecords().filter(r=>!r.voided_at && r.checkout_session_id && ['unpaid','expired'].includes(invoicePaymentStatus(r)));
+  const sessionIds=[...new Set(records.map(r=>r.checkout_session_id).filter(Boolean))];
+  if(!sessionIds.length){
+    loadInvoiceHistory();
+    return;
+  }
+  if(out) out.insertAdjacentHTML('afterbegin','<div class="msg-info" id="history-refresh-msg">Refreshing Stripe session statuses...</div>');
+  try{
+    const result=await fetchStripeSessionStatuses(sessionIds);
+    const bySession=new Map(result.sessions.map(session=>[session.id,session.invoice_payment_status]));
+    let updated=0;
+    for(const record of records){
+      const status=bySession.get(record.checkout_session_id);
+      if(status && status!==invoicePaymentStatus(record)){
+        await DB.setInvoicePaymentStatus(record,status);
+        updated++;
+      }
+    }
+    refreshInvoiceHistoryFilters(document.getElementById('hist-client')?.value || 'all');
+    const message=`${updated} invoice${updated===1?'':'s'} updated from Stripe${result.errors?.length ? `; ${result.errors.length} refresh error${result.errors.length===1?'':'s'}` : ''}.`;
+    const refreshed=document.getElementById('history-out');
+    if(refreshed) refreshed.insertAdjacentHTML('afterbegin',`<div class="msg-ok">${esc(message)}</div>`);
+  }catch(err){
+    const refreshed=document.getElementById('history-out');
+    if(refreshed) refreshed.insertAdjacentHTML('afterbegin',`<div class="msg-err">Stripe refresh failed: ${esc(err.message)}</div>`);
   }
 }
 
@@ -1868,7 +1970,7 @@ function loadInvoiceHistory(){
         <td>${safeCheckoutUrl(r.checkout_url) && !r.voided_at && invoicePaymentStatus(r)==='unpaid' ? `<a class="btn btn-sm btn-pay btn-pay-clean" href="${esc(safeCheckoutUrl(r.checkout_url))}" target="_blank" rel="noopener">Pay</a>` : '<span style="color:var(--muted)">-</span>'}</td>
         <td>${r.voided_at ? '<span style="color:var(--muted)">-</span>' : `<button class="btn btn-sm ${invoicePaymentStatus(r)==='paid'?'':'btn-primary'}" onclick="toggleInvoicePaid(${i})">${invoicePaymentStatus(r)==='paid'?'Mark unpaid':'Mark paid'}</button>`}</td>
         <td>${invoiceIsOpen(r) ? `<button class="btn btn-sm btn-danger" onclick="voidInvoiceFromHistory(${i})">Void</button>` : '<span style="color:var(--muted)">-</span>'}</td>
-        <td class="history-file" title="${esc(r.pdf_filename)}">${esc(r.pdf_filename || '-')}</td>
+        <td class="history-file" title="${esc(r.pdf_filename)}">${r.pdf_filename ? `<button class="btn btn-sm" data-history-download="${i}" onclick="downloadInvoiceFromHistory(${i})">Download</button><span>${esc(r.pdf_filename)}</span>` : '<span style="color:var(--muted)">-</span>'}</td>
       </tr>`).join('')}</tbody>
     </table>
   </div>`;

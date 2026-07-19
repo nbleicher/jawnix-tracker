@@ -35,7 +35,7 @@ create table if not exists public.jawnix_invoice_records (
   checkout_url text not null default '',
   pdf_filename text not null default '',
   total_due numeric(12, 2) not null default 0,
-  payment_status text not null default 'unpaid' check (payment_status in ('paid', 'unpaid', 'no_payment_required')),
+  payment_status text not null default 'unpaid' check (payment_status in ('paid', 'unpaid', 'expired', 'no_payment_required')),
   paid_at timestamptz,
   generated_at timestamptz not null default now(),
   voided_at timestamptz,
@@ -44,8 +44,13 @@ create table if not exists public.jawnix_invoice_records (
 
 alter table public.jawnix_invoice_records
   add column if not exists payment_status text not null default 'unpaid'
-    check (payment_status in ('paid', 'unpaid', 'no_payment_required')),
+    check (payment_status in ('paid', 'unpaid', 'expired', 'no_payment_required')),
   add column if not exists paid_at timestamptz;
+
+alter table public.jawnix_invoice_records
+  drop constraint if exists jawnix_invoice_records_payment_status_check,
+  add constraint jawnix_invoice_records_payment_status_check
+    check (payment_status in ('paid', 'unpaid', 'expired', 'no_payment_required'));
 
 create table if not exists public.jawnix_expenses (
   workspace_id text not null,
