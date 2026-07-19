@@ -62,7 +62,7 @@ Only set `JAWNIX_ALLOW_UNPROTECTED=true` for a deliberately public deployment af
 
 The app includes `POST /api/generate-invoice`. It accepts the invoice JSON produced by the weekly invoice modal, creates a Stripe Checkout Session when `STRIPE_SECRET_KEY` is set, renders `templates/Jawnix_Invoice_Template.docx` with Python `zipfile`, converts it with `libreoffice`, stores the DOCX and PDF in `JAWNIX_INVOICE_DIR`, and returns the PDF as a download. The Stripe Checkout URL and Session ID are returned in response headers so the frontend can save invoice records and expire matching Stripe Checkout Sessions when an invoice is voided from Settings.
 
-Invoice records include a manual paid/unpaid toggle in Invoice History. Paid, non-void invoices feed the P&L page as invoice revenue. The P&L page also stores miscellaneous income with notes in `jawnix_misc_income` and expenses, including lead costs, in `jawnix_expenses`. Rerunning `supabase-schema.sql` migrates existing weekly lead costs from `jawnix_weekly_financials` into `jawnix_expenses`.
+Invoice records include a manual paid/unpaid toggle in Invoice History. The history refresh action checks Stripe Checkout Session status and marks expired sessions as `expired` instead of open/unpaid. Paid, non-void invoices feed the P&L page as invoice revenue. The P&L page also stores miscellaneous income with notes in `jawnix_misc_income` and expenses, including lead costs, in `jawnix_expenses`. Rerunning `supabase-schema.sql` migrates existing weekly lead costs from `jawnix_weekly_financials` into `jawnix_expenses`.
 
 The Docker image installs LibreOffice with apt. If generated invoices need to survive container restarts, mount persistent storage at `JAWNIX_INVOICE_DIR`.
 
