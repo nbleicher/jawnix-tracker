@@ -1,0 +1,13 @@
+.git
+.github
+.context
+.env
+.venv
+__pycache__
+.pytest_cache
+.coverage
+batches
+invoices
+tests
+*.db
+*.pyc

@@ -1,68 +1,22 @@
-{
-	admin off
-	auto_https off
-}
-
-:{$PORT:8080} {
-	bind 0.0.0.0
-	root * /app
-
-	handle /healthz {
-		respond "ok" 200
-	}
-
-	@api_preflight {
-		path /api/*
-		method OPTIONS
-	}
-	handle @api_preflight {
-		reverse_proxy 127.0.0.1:{$JAWNIX_API_PORT:8001}
-	}
-
-	handle /api/auth/* {
-		reverse_proxy 127.0.0.1:{$JAWNIX_API_PORT:8001}
-	}
+{$JAWNIX_DOMAIN:jawnix.com} {
+	encode zstd gzip
 
 	handle /api/* {
-		forward_auth 127.0.0.1:{$JAWNIX_API_PORT:8001} {
-			uri /api/auth/check
-		}
-
-		reverse_proxy 127.0.0.1:{$JAWNIX_API_PORT:8001}
+		reverse_proxy api:8001
 	}
 
-	handle /login.html {
-		file_server
-	}
+	redir / /login.html 302
+	redir /index.html /login.html 302
+	redir /login /login.html 308
+	redir /portal /portal.html 308
 
-	handle /login {
-		redir * /login.html 308
-	}
-
-	handle /portal {
-		redir * /portal.html 308
-	}
-
-	@public_portal path /portal.html /portal-accept.html /config.js /theme.css
-	handle @public_portal {
-		file_server
-	}
-
-	handle {
-		@no_session not header Cookie *jawnix_session=*
-		redir @no_session /login.html 303
-
-		forward_auth 127.0.0.1:{$JAWNIX_API_PORT:8001} {
-			uri /api/auth/check
-			header_up X-Jawnix-Auth-Redirect /login.html
-		}
-
-		try_files {path} /index.html
-		file_server
-	}
+	root * /srv/static
+	file_server
 
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer-when-downgrade
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
 	}
 }

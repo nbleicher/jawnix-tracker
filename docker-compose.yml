@@ -1,0 +1,108 @@
+name: jawnix
+
+x-app: &app
+  build: .
+  restart: unless-stopped
+  env_file: .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+  volumes:
+    - batch_data:/srv/jawnix/batches
+    - scraper_data:/data
+  networks:
+    - private
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jawnix}
+      POSTGRES_USER: ${POSTGRES_USER:-jawnix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=mkdir -p /var/lib/postgresql/data/pgdata/wal-archive && (test -f /var/lib/postgresql/data/pgdata/wal-archive/%f || cp %p /var/lib/postgresql/data/pgdata/wal-archive/%f)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./ops/initdb/10-replication.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jawnix} -d ${POSTGRES_DB:-jawnix}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - private
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+
+  api:
+    <<: *app
+    command: ["uvicorn", "jawnix.api:app", "--host", "0.0.0.0", "--port", "8001", "--proxy-headers", "--workers", "2"]
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "jawnix.worker"]
+
+  scheduler:
+    <<: *app
+    command: ["python", "-m", "jawnix_data.scheduler"]
+
+  backup:
+    <<: *app
+    command: ["python", "-m", "jawnix_data.backup_scheduler"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB:-jawnix}
+      PGUSER: ${POSTGRES_USER:-jawnix}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:ro
+      - backup_staging:/srv/jawnix/backups
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      JAWNIX_DOMAIN: ${JAWNIX_DOMAIN:-jawnix.com}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./admin.html:/srv/static/admin.html:ro
+      - ./login.html:/srv/static/login.html:ro
+      - ./portal.html:/srv/static/portal.html:ro
+      - ./portal-accept.html:/srv/static/portal-accept.html:ro
+      - ./theme.css:/srv/static/theme.css:ro
+      - ./config.js:/srv/static/config.js:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - private
+
+volumes:
+  postgres_data:
+  batch_data:
+  scraper_data:
+  caddy_data:
+  caddy_config:
+  backup_staging:
+
+networks:
+  private:
+    internal: false

@@ -1,19 +1,19 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Jawnix Login</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/config.js"></script>
-<link rel="stylesheet" href="/theme.css?v=20260717-theme">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Jawnix Login</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/config.js"></script>
+  <link rel="stylesheet" href="/theme.css">
 </head>
 <body class="auth-page">
 <main class="auth-shell">
-  <div class="auth-brand"><div class="logo">JAWN<span>IX</span></div><p>Tracker and customer portal</p></div>
+  <div class="auth-brand"><div class="logo">JAWN<span>IX</span></div><p>Customer batch portal</p></div>
   <section class="auth-card">
     <h1>Sign in</h1>
-    <div class="error" id="error" style="display:none"></div>
+    <div class="error" id="message" hidden></div>
     <form id="login-form">
       <div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required autofocus></div>
       <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required></div>
@@ -24,54 +24,34 @@
 </main>
 <script>
 const cfg=window.JAWNIX_CONFIG||{};
-const client=window.supabase?.createClient?.(cfg.supabaseUrl,cfg.supabaseAnonKey);
-const form=document.getElementById('login-form'), errorBox=document.getElementById('error'), button=document.getElementById('submit');
-const next=new URLSearchParams(window.location.search).get('next')||'/';
-function showNotice(message,type='error'){errorBox.className=type==='ok'?'msg-ok':'error';errorBox.textContent=message;errorBox.style.display='block';}
-function safeNext(value){return value.startsWith('/')&&!value.startsWith('//')?value:'/';}
-async function clearServerSession(){await fetch('/api/auth/logout',{method:'POST',credentials:'same-origin'}).catch(()=>{});}
-async function finishLogin(session){
-  const user=session?.user;
-  if(user?.app_metadata?.jawnix_role!=='admin'){
-    await clearServerSession();
-    window.location.assign('/portal.html');
-    return;
-  }
-  const token=session?.access_token;
-  const res=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({supabaseAccessToken:token})});
-  if(!res.ok){let message='Admin access is required.';try{message=(await res.json()).error||message;}catch(_err){}await clearServerSession();await client.auth.signOut();throw new Error(message);}
-  window.location.assign(safeNext(next));
+const supabaseClient=window.supabase?.createClient?.(cfg.supabaseUrl,cfg.supabaseAnonKey);
+const form=document.getElementById('login-form'),message=document.getElementById('message'),button=document.getElementById('submit');
+const requestedNext=new URLSearchParams(location.search).get('next');
+function show(text,ok=false){message.hidden=false;message.className=ok?'msg-ok':'error';message.textContent=text;}
+async function establish(session){
+  const response=await fetch('/api/auth/session',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:session.access_token})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Could not create your Jawnix session.');
+  const safe=requestedNext&&requestedNext.startsWith('/')&&!requestedNext.startsWith('//')?requestedNext:data.next;
+  location.assign(safe);
 }
 form.addEventListener('submit',async event=>{
-  event.preventDefault(); errorBox.style.display='none'; button.disabled=true;button.textContent='Signing in...';
+  event.preventDefault();button.disabled=true;button.textContent='Signing in...';message.hidden=true;
   try{
-    if(!client) throw new Error('Supabase configuration is unavailable.');
-    const {data,error}=await client.auth.signInWithPassword({email:form.email.value.trim(),password:form.password.value});
-    if(error) throw error;
-    await finishLogin(data.session);
-  }catch(error){showNotice(error.message||'Login failed.');}
-  finally{button.disabled=false;button.textContent='Sign in';}
+    if(!supabaseClient)throw new Error('Login configuration is unavailable.');
+    const {data,error}=await supabaseClient.auth.signInWithPassword({email:form.email.value.trim(),password:form.password.value});
+    if(error)throw error;await establish(data.session);
+  }catch(error){show(error.message||'Login failed.');button.disabled=false;button.textContent='Sign in';}
 });
 document.getElementById('forgot-password').addEventListener('click',async event=>{
-  event.preventDefault(); errorBox.style.display='none';
+  event.preventDefault();
   try{
-    if(!client) throw new Error('Supabase configuration is unavailable.');
-    const email=form.email.value.trim();
-    if(!email) throw new Error('Enter your email address first.');
-    const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin+'/portal-accept.html'});
-    if(error) throw error;
-    showNotice('Check your email for a password reset link.','ok');
-  }catch(error){showNotice(error.message||'Password reset failed.');}
+    const email=form.email.value.trim();if(!email)throw new Error('Enter your email first.');
+    const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:location.origin+'/portal-accept.html'});
+    if(error)throw error;show('Check your email for the reset link.',true);
+  }catch(error){show(error.message||'Could not send reset email.');}
 });
-async function redirectExistingSession(){
-  if(!client) return;
-  const {data:{session}}=await client.auth.getSession();
-  if(session){
-    try{await finishLogin(session);}
-    catch(error){showNotice(error.message||'Login failed.');}
-  }
-}
-redirectExistingSession();
+(async()=>{if(!supabaseClient)return;const {data:{session}}=await supabaseClient.auth.getSession();if(session){try{await establish(session);}catch(_error){}}})();
 </script>
 </body>
 </html>

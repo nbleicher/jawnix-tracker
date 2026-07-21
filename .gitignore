@@ -1,4 +1,11 @@
 config.js
 .env
 invoices/
+batches/
+.venv/
+*.db
+__pycache__/
+.pytest_cache/
+.coverage
+*.egg-info/
 supabase/.temp/

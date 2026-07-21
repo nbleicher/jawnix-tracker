@@ -1,101 +1,57 @@
-# Jawnix Lead Tracker
+# Jawnix VPS batch platform
 
-This is a static web app backed by Supabase.
+Jawnix is a customer batch-request portal backed by FastAPI and private PostgreSQL. Supabase remains the identity provider; application data lives on the VPS. Slack handles approval and Resend delivers an exact `phone,title` CSV.
 
-Live app: https://jawnix-tracker-production.up.railway.app
+Billing, invoice, Stripe, and finance code remains in the repository for rollback, but the VPS application does not serve those routes and the new UI does not expose them. Keep `JAWNIX_ENABLE_BILLING=false`.
 
-## Supabase setup
+## Services
 
-1. Create a Supabase project.
-2. Run `supabase-schema.sql` in the Supabase SQL editor.
-3. For local static testing, copy `config.example.js` to `config.js`.
-4. Fill in your Supabase project URL and anon key in `config.js`.
+- Caddy: public HTTP/HTTPS and static portal
+- FastAPI: session, profile, request, admin, Slack, and Resend APIs
+- Worker: durable approval, allocation, Slack, and delivery jobs
+- PostgreSQL 18: private inventory and permanent allocation history
+- Scheduler: nightly scraper sync and 30-day CSV cleanup
+- Backup worker: encrypted Restic dump and WAL backup with 14-day retention
 
-Current Supabase project ref: `xlefqzzhkfmzoowmysxs`.
+Only Caddy publishes ports. PostgreSQL, the API, worker, and schedulers remain on the Docker network.
 
-## Railway deployment
-
-This repo is configured for Railway with Caddy and Nixpacks:
-
-- `railway.json` pins the Railway deploy settings.
-- `Dockerfile` installs Caddy and LibreOffice.
-- `Caddyfile` serves the login page, protects the tracker with a signed session cookie, and proxies invoice API requests.
-- `railway-start.sh` creates `config.js` from Railway Variables, starts the invoice API, and enables the login page by default.
-
-Set these Railway Variables on the service:
+## Local verification
 
 ```sh
-JAWNIX_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-JAWNIX_SUPABASE_ANON_KEY=YOUR-SUPABASE-ANON-OR-PUBLISHABLE-KEY
-SUPABASE_SERVICE_ROLE_KEY=YOUR-SUPABASE-SERVICE-ROLE-KEY
-JAWNIX_WORKSPACE_ID=default
-JAWNIX_LEADS_TABLE=jawnix_leads
-JAWNIX_SETTINGS_TABLE=jawnix_settings
-JAWNIX_INVOICE_VOIDS_TABLE=jawnix_invoice_voids
-JAWNIX_INVOICE_RECORDS_TABLE=jawnix_invoice_records
-JAWNIX_EXPENSES_TABLE=jawnix_expenses
-JAWNIX_MISC_INCOME_TABLE=jawnix_misc_income
-JAWNIX_API_PORT=8001
-JAWNIX_INVOICE_DIR=/app/invoices
-JAWNIX_CORS_ORIGIN=*
-JAWNIX_PUBLIC_BASE_URL=https://YOUR-APP-DOMAIN
-STRIPE_SECRET_KEY=YOUR_STRIPE_SECRET_KEY
-STRIPE_CURRENCY=usd
-JAWNIX_BASIC_AUTH_USER=jawnix
-JAWNIX_BASIC_AUTH_PASSWORD=CHOOSE-A-STRONG-PASSWORD
-JAWNIX_SESSION_SECRET=GENERATE-A-RANDOM-SECRET
-JAWNIX_SESSION_TTL_SECONDS=86400
-PORT=8080
+python3.12 -m venv .venv
+.venv/bin/pip install -e '.[test]'
+.venv/bin/pytest
+cp .env.example .env
+# Replace every placeholder, then:
+./scripts/render-config.sh
+docker compose config
+docker compose up -d
+curl https://jawnix.com/api/readyz
 ```
 
-The same variables are listed in `.env.example`.
-
-The login page signs in both admins and customers. Admin accounts also post to `/api/auth/login`, which sets an HttpOnly signed session cookie for the tracker. Set `JAWNIX_SESSION_SECRET` to a long random value so admin sessions remain valid even if the password changes.
+The PostgreSQL concurrency acceptance test is intentionally separate from unit tests:
 
 ```sh
-openssl rand -base64 32
+docker run --rm --network jawnix_private \
+  -e DATABASE_URL="$DATABASE_URL" \
+  -v "$PWD:/src" -w /src jawnix-api \
+  python scripts/postgres_concurrency_acceptance.py
 ```
 
-Only set `JAWNIX_ALLOW_UNPROTECTED=true` for a deliberately public deployment after replacing the included permissive Supabase policies with an auth-backed access model.
+## Data terminal
 
-## Invoice PDF generation
-
-The app includes `POST /api/generate-invoice`. It accepts the invoice JSON produced by the weekly invoice modal, creates a Stripe Checkout Session when `STRIPE_SECRET_KEY` is set, renders `templates/Jawnix_Invoice_Template.docx` with Python `zipfile`, converts it with `libreoffice`, stores the DOCX and PDF in `JAWNIX_INVOICE_DIR`, and returns the PDF as a download. The Stripe Checkout URL and Session ID are returned in response headers so the frontend can save invoice records and expire matching Stripe Checkout Sessions when an invoice is voided from Settings.
-
-Invoice records include a manual paid/unpaid toggle in Invoice History. The history refresh action checks Stripe Checkout Session status and marks expired sessions as `expired` instead of open/unpaid. Paid, non-void invoices feed the P&L page as invoice revenue. The P&L page also stores miscellaneous income with notes in `jawnix_misc_income` and expenses, including lead costs, in `jawnix_expenses`. Rerunning `supabase-schema.sql` migrates existing weekly lead costs from `jawnix_weekly_financials` into `jawnix_expenses`.
-
-The Docker image installs LibreOffice with apt. If generated invoices need to survive container restarts, mount persistent storage at `JAWNIX_INVOICE_DIR`.
-
-Create and deploy with the Railway CLI:
+The worker and CLI call the same allocator.
 
 ```sh
-railway login
-railway init --name jawnix-tracker
-railway variable set \
-  JAWNIX_SUPABASE_URL=https://YOUR-PROJECT.supabase.co \
-  JAWNIX_SUPABASE_ANON_KEY=YOUR-SUPABASE-ANON-OR-PUBLISHABLE-KEY \
-  SUPABASE_SERVICE_ROLE_KEY=YOUR-SUPABASE-SERVICE-ROLE-KEY \
-  JAWNIX_WORKSPACE_ID=default \
-  JAWNIX_LEADS_TABLE=jawnix_leads \
-  JAWNIX_SETTINGS_TABLE=jawnix_settings \
-  JAWNIX_INVOICE_VOIDS_TABLE=jawnix_invoice_voids \
-  JAWNIX_INVOICE_RECORDS_TABLE=jawnix_invoice_records \
-  JAWNIX_EXPENSES_TABLE=jawnix_expenses \
-  JAWNIX_MISC_INCOME_TABLE=jawnix_misc_income \
-  JAWNIX_API_PORT=8001 \
-  JAWNIX_INVOICE_DIR=/app/invoices \
-  JAWNIX_CORS_ORIGIN='*' \
-  JAWNIX_PUBLIC_BASE_URL=https://YOUR-APP-DOMAIN \
-  STRIPE_SECRET_KEY=YOUR_STRIPE_SECRET_KEY \
-  STRIPE_CURRENCY=usd \
-  JAWNIX_BASIC_AUTH_USER=jawnix \
-  JAWNIX_BASIC_AUTH_PASSWORD='CHOOSE-A-STRONG-PASSWORD' \
-  JAWNIX_SESSION_SECRET='PASTE-RANDOM-SECRET-HERE' \
-  PORT=8080
-railway up
-railway domain
+python -m jawnix_data redistribute --request-id UUID
+python -m jawnix_data sync-scrapers
+python -m jawnix_data sync-scrapers --source NAME
+python -m jawnix_data inventory --states TX,FL
+python -m jawnix_data retry-delivery --request-id UUID
 ```
 
-`config.js` is gitignored because it contains deployment-specific credentials. The anon key is safe to use in browser apps when Row Level Security policies match your access model.
+Migration and production operations are documented in [OPERATIONS.md](docs/OPERATIONS.md). Copy `.env.example` for the complete secret/configuration contract. Never commit `.env` or generated `config.js`.
 
-The included SQL policies allow the configured browser app to read and write data with the anon key. Use this as-is only behind protected hosting or for a private/internal app. For a public app, add Supabase Auth and tighten the RLS policies before launch.
+## Allocation rules
+
+Allocation is all-or-nothing and transactionally locks rows with `SKIP LOCKED`. A phone is never repeated to an agent; members of one agency share permanent no-repeat history. Other recipients may receive it only after the seven-day global cooldown. Never-distributed rows sort first, followed by the oldest distribution date. A retry after generation reuses the same events and CSV.

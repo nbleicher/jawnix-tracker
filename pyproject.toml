@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jawnix-vps"
+version = "1.0.0"
+description = "Jawnix customer batch request, allocation, and delivery platform"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14,<2",
+  "email-validator>=2.2,<3",
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "itsdangerous>=2.2,<3",
+  "openpyxl>=3.1,<4",
+  "phonenumbers>=9.0,<10",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic-settings>=2.10,<3",
+  "python-multipart>=0.0.20,<1",
+  "sqlalchemy>=2.0.41,<3",
+  "svix>=1.70,<2",
+  "typer>=0.16,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+]
+
+[project.scripts]
+jawnix-data = "jawnix_data.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["jawnix*", "jawnix_data*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
